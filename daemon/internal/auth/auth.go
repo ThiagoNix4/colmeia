@@ -1,4 +1,4 @@
-// Package auth: token hmac por card + credenciais do peer no socket (SO_PEERCRED).
+// Package auth: token hmac por card + credenciais do peer no socket (SO_PEERCRED, só unix).
 package auth
 
 import (
@@ -6,14 +6,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
-
-	"golang.org/x/sys/unix"
 )
 
 // ConfigDir: ~/.config/colmeia (ou $XDG_CONFIG_HOME/colmeia).
@@ -105,48 +101,6 @@ func VerifyToken(cardID string, token any) bool {
 		return false
 	}
 	return hmac.Equal([]byte(TokenFor(cardID)), []byte(t))
-}
-
-// Peer: uid e pid do outro lado de uma conexão unix.
-func Peer(c net.Conn) (uid uint32, pid int, err error) {
-	uc, ok := c.(*net.UnixConn)
-	if !ok {
-		return 0, 0, net.ErrClosed
-	}
-	raw, err := uc.SyscallConn()
-	if err != nil {
-		return 0, 0, err
-	}
-	var cred *unix.Ucred
-	var cerr error
-	if err := raw.Control(func(fd uintptr) {
-		cred, cerr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-	}); err != nil {
-		return 0, 0, err
-	}
-	if cerr != nil {
-		return 0, 0, cerr
-	}
-	return cred.Uid, int(cred.Pid), nil
-}
-
-// Ppid lê o pai de um pid em /proc/<pid>/stat (0 se não achar).
-func Ppid(pid int) int {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return 0
-	}
-	s := string(b)
-	i := strings.LastIndexByte(s, ')')
-	if i < 0 {
-		return 0
-	}
-	f := strings.Fields(s[i+1:]) // state ppid ...
-	if len(f) < 2 {
-		return 0
-	}
-	n, _ := strconv.Atoi(f[1])
-	return n
 }
 
 // Origin classifica o processo remoto.

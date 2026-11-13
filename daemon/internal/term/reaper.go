@@ -1,3 +1,5 @@
+//go:build !windows
+
 package term
 
 // Reaper: o daemon é subreaper; netos órfãos viram filhos dele e ficam zumbis.

@@ -15,9 +15,11 @@
   "scripts": {
     "dev": "electron-vite dev -- --ozone-platform-hint=auto",
     "build": "electron-vite build && npm run build:daemon",
+    "build:daemon:win": "cd daemon && GOOS=windows GOARCH=amd64 go build -o ../out/colmeiad.exe ./cmd/colmeiad",
     "build:daemon": "cd daemon && go build -o ../out/colmeiad ./cmd/colmeiad",
     "start": "electron-vite preview -- --ozone-platform-hint=auto",
     "dist": "npm run build && electron-builder --linux",
+    "dist:win": "electron-vite build && npm run build:daemon:win && electron-builder --win portable nsis --x64",
     "install-app": "bash scripts/install.sh"
   },
   "build": {
@@ -31,10 +33,14 @@
     ],
     "asarUnpack": [
       "out/colmeiad",
+      "out/colmeiad.exe",
       "cli/**",
       "docs/**"
     ],
     "linux": {
+      "files": [
+        "!out/colmeiad.exe"
+      ],
       "target": [
         "AppImage",
         "deb"
@@ -43,6 +49,16 @@
       "maintainer": "Thiago <noreply@colmeia.local>",
       "icon": "assets/icon.png",
       "syncDesktopName": true
+    },
+    "win": {
+      "files": [
+        "!out/colmeiad"
+      ],
+      "icon": "assets/icon.png",
+      "target": [
+        "portable",
+        "nsis"
+      ]
     },
     "deb": {
       "depends": [

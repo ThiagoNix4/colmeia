@@ -5,8 +5,13 @@ import os from 'node:os'
 import { DaemonClient } from './daemonClient'
 import type { LinkEdge, NoteCard, Preset, SpawnRequest, UsageSettings, Workspace } from './types'
 
+// win32: named pipe por usuário; unix: socket em XDG_RUNTIME_DIR
 const socketPath =
-  process.env.COLMEIA_SOCK_PATH || path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'colmeia.sock')
+  process.env.COLMEIA_SOCK_PATH ||
+  (process.platform === 'win32'
+    ? `\\\\.\\pipe\\colmeia-${os.userInfo().username}`
+    : path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'colmeia.sock'))
+const EXE = process.platform === 'win32' ? '.exe' : ''
 
 // Faz o GNOME associar a janela ao atalho colmeia.desktop (ícone na dock)
 app.setName('colmeia')
@@ -61,14 +66,14 @@ const unpacked = (p: string) => p.replace('app.asar' + path.sep, 'app.asar.unpac
 function stageAppImage(bin: string, cli: string, docs: string) {
   const base = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local/share'), 'colmeia')
   const dest = path.join(base, app.getVersion())
-  const out = { bin: path.join(dest, 'colmeiad'), cli: path.join(dest, 'cli'), docs: path.join(dest, 'docs') }
+  const out = { bin: path.join(dest, 'colmeiad' + EXE), cli: path.join(dest, 'cli'), docs: path.join(dest, 'docs') }
   if (fs.existsSync(out.bin) && fs.existsSync(out.cli) && fs.existsSync(out.docs)) return out
   fs.mkdirSync(base, { recursive: true })
   const tmp = `${dest}.tmp-${process.pid}`
   fs.rmSync(tmp, { recursive: true, force: true })
   fs.mkdirSync(tmp, { recursive: true })
-  fs.copyFileSync(bin, path.join(tmp, 'colmeiad'))
-  fs.chmodSync(path.join(tmp, 'colmeiad'), 0o755)
+  fs.copyFileSync(bin, path.join(tmp, 'colmeiad' + EXE))
+  if (!EXE) fs.chmodSync(path.join(tmp, 'colmeiad'), 0o755)
   fs.cpSync(cli, path.join(tmp, 'cli'), { recursive: true })
   fs.cpSync(docs, path.join(tmp, 'docs'), { recursive: true })
   fs.rmSync(dest, { recursive: true, force: true }) // cópia parcial antiga
@@ -78,11 +83,11 @@ function stageAppImage(bin: string, cli: string, docs: string) {
 
 // ---- main = ponte fina; IPC do preload → socket do colmeiad ----
 function daemonMain() {
-  let bin = unpacked(process.env.COLMEIA_DAEMON_BIN || path.join(app.getAppPath(), 'out/colmeiad'))
+  let bin = unpacked(process.env.COLMEIA_DAEMON_BIN || path.join(app.getAppPath(), 'out/colmeiad' + EXE))
   let cliDir = unpacked(resDir('cli'))
   let docsDir = unpacked(resDir('docs'))
-  // AppImage: o mount some ao fechar o app, mas o daemon sobrevive → copia p/ ~/.local/share/colmeia/<versão>/
-  if (process.env.APPIMAGE) {
+  // AppImage / portable .exe (extrai p/ temp): o mount some ao fechar o app, mas o daemon sobrevive → copia p/ ~/.local/share/colmeia/<versão>/
+  if (process.env.APPIMAGE || process.env.PORTABLE_EXECUTABLE_FILE || process.platform === 'win32') {
     try {
       const r = stageAppImage(bin, cliDir, docsDir)
       bin = r.bin
@@ -108,7 +113,7 @@ function daemonMain() {
   const dc = new DaemonClient(
     socketPath,
     bin,
-    ['--docs', docsDir, '--cli', cliDir],
+    ['--docs', docsDir, '--cli', cliDir, ...(process.platform === 'win32' ? ['--sock', socketPath] : [])],
     { cli: cliDir, docs: docsDir },
     askRestart
   )

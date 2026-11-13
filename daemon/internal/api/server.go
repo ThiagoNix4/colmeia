@@ -97,17 +97,10 @@ func New(cfg Config) *Server {
 
 // Start abre o socket, reconcilia históricos e liga os eventos.
 func (s *Server) Start() error {
-	// M6: socket vivo = outro backend (daemon/app legado): não rouba
-	if c, err := net.DialTimeout("unix", s.cfg.SockPath, 500*time.Millisecond); err == nil {
-		c.Close()
-		return fmt.Errorf("socket %s em uso por outro backend do Colmeia", s.cfg.SockPath)
-	}
-	_ = os.Remove(s.cfg.SockPath)
-	ln, err := net.Listen("unix", s.cfg.SockPath)
+	ln, err := listenSock(s.cfg.SockPath)
 	if err != nil {
 		return err
 	}
-	_ = os.Chmod(s.cfg.SockPath, 0o600)
 	s.ln = ln
 	s.cfg.Term.Prune(store.AllCardIDs())
 	s.watch.Watch(s.curWs)
@@ -173,7 +166,7 @@ func (s *Server) serve(nc net.Conn) {
 	c := &conn{c: nc, out: make(chan []byte, 16384), done: make(chan struct{})}
 	defer func() { c.close(); s.dropConn(c) }()
 	uid, pid, err := auth.Peer(nc)
-	if err != nil || int(uid) != os.Getuid() {
+	if err != nil || !auth.SameUser(uid) {
 		return
 	}
 	c.origin, c.cardID = auth.Classify(pid, s.cfg.DaemonPid, s.cfg.Term.ShellPids())

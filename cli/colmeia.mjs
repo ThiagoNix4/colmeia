@@ -7,7 +7,9 @@ import path from 'node:path'
 const SOCK =
   process.env.COLMEIA_SOCK ||
   process.env.COLMEIA_SOCK_PATH ||
-  path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'colmeia.sock')
+  (process.platform === 'win32'
+    ? `\\\\.\\pipe\\colmeia-${os.userInfo().username}`
+    : path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'colmeia.sock'))
 
 const NOTE_HELP = `  colmeia note ls [--all]                       lista as notas ligadas a você (--all: todas, com marca [ligada])
   colmeia note new <título> [--near ID]         cria uma nota (imprime o caminho do .md)

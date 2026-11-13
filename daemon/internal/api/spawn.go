@@ -3,6 +3,7 @@ package api
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"colmeia/daemon/internal/auth"
@@ -12,13 +13,28 @@ import (
 
 var lean = os.Getenv("COLMEIA_LEAN") == "1"
 
-func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+// shQuote: aspas simples do shell (bash: '\” ; PowerShell: ”).
+func shQuote(s string) string {
+	if runtime.GOOS == "windows" {
+		return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// statusCmd: comando da statusline (executado pelo Claude Code, não pelo nosso shell).
+func statusCmd(cliDir string) string {
+	f := filepath.Join(cliDir, "colmeia-statusline.mjs")
+	if runtime.GOOS == "windows" {
+		return `node "` + f + `"` // cmd/PowerShell/bash entendem aspas duplas
+	}
+	return "node " + shQuote(f)
+}
 
 // writeClaudeSettings gera (atômico) o settings do Claude Code com a statusline do Colmeia.
 func writeClaudeSettings(cliDir string) string {
 	file := filepath.Join(auth.ConfigDir(), "claude-settings.json")
 	_ = os.MkdirAll(filepath.Dir(file), 0o755)
-	set := map[string]any{"statusLine": map[string]any{"type": "command", "command": "node " + shQuote(filepath.Join(cliDir, "colmeia-statusline.mjs"))}}
+	set := map[string]any{"statusLine": map[string]any{"type": "command", "command": statusCmd(cliDir)}}
 	if lean {
 		set["permissions"] = map[string]any{"deny": []string{"Artifact", "mcp__claude_ai_Claude_Docs", "ScheduleWakeup", "SendFeedback"}}
 	}
@@ -68,10 +84,7 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 		}
 	}
 	s.mu.Unlock()
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
+	shell, shellArgs := term.DefaultShell()
 	cwd := in.Cwd
 	home, _ := os.UserHomeDir()
 	if cwd == "" {
@@ -80,14 +93,23 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 	if err := os.MkdirAll(cwd, 0o755); err != nil {
 		cwd = home
 	}
-	args := []string{"-l"}
+	args := shellArgs // unix: -l; windows: -NoLogo
 	if preset != nil && preset.Command != "" {
 		cmd := withClaudeSettings(strings.ReplaceAll(preset.Command, "{docs}", s.cfg.DocsDir), writeClaudeSettings(s.cfg.CliDir))
-		script := cmd
-		if preset.KeepShell {
-			script = cmd + "; exec " + shell + " -l"
+		if runtime.GOOS == "windows" {
+			// PowerShell: -NoExit mantém o shell após o comando
+			args = []string{"-NoLogo"}
+			if preset.KeepShell {
+				args = append(args, "-NoExit")
+			}
+			args = append(args, "-Command", cmd)
+		} else {
+			script := cmd
+			if preset.KeepShell {
+				script = cmd + "; exec " + shell + " -l"
+			}
+			args = []string{"-l", "-i", "-c", script}
 		}
-		args = []string{"-l", "-i", "-c", script}
 	}
 	env := map[string]string{}
 	for _, kv := range os.Environ() {
@@ -98,7 +120,14 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 	env["TERM"], env["COLORTERM"] = "xterm-256color", "truecolor"
 	env["COLMEIA_CARD_ID"], env["COLMEIA_CARD_TITLE"] = in.ID, in.Title
 	env["COLMEIA_SOCK"], env["COLMEIA_TOKEN"] = s.cfg.SockPath, auth.TokenFor(in.ID)
-	env["PATH"] = s.cfg.CliDir + string(os.PathListSeparator) + os.Getenv("PATH")
+	// Windows: a chave é "Path"; sobrescreve a existente (sem duplicar por caixa)
+	pathKey := "PATH"
+	for k := range env {
+		if strings.EqualFold(k, "PATH") {
+			pathKey = k
+		}
+	}
+	env[pathKey] = s.cfg.CliDir + string(os.PathListSeparator) + env[pathKey]
 	cols, rows := in.Cols, in.Rows
 	if cols == 0 {
 		cols = 100

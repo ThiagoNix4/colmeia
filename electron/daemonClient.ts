@@ -11,7 +11,10 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; time
 
 const configDir = () => path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'colmeia')
 export const daemonSocketPath = () =>
-  process.env.COLMEIA_SOCK_PATH || path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'colmeia.sock')
+  process.env.COLMEIA_SOCK_PATH ||
+  (process.platform === 'win32'
+    ? `\\\\.\\pipe\\colmeia-${os.userInfo().username}`
+    : path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'colmeia.sock'))
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -148,7 +151,7 @@ export class DaemonClient {
   private spawnDaemon() {
     fs.mkdirSync(configDir(), { recursive: true })
     const log = fs.openSync(path.join(configDir(), 'colmeiad.log'), 'a')
-    const child = spawn(this.binPath, this.spawnArgs, { detached: true, stdio: ['ignore', log, log] })
+    const child = spawn(this.binPath, this.spawnArgs, { detached: true, windowsHide: true, cwd: configDir(), stdio: ['ignore', log, log] })
     child.on('error', () => {})
     child.unref()
     fs.closeSync(log)
@@ -191,7 +194,7 @@ export class DaemonClient {
         } catch {
           /* segue: se ainda responder, o loop abaixo falha com mensagem clara */
         }
-        for (let i = 0; i < 30 && fs.existsSync(this.sockPath); i++) await sleep(100)
+        for (let i = 0; i < 30 && process.platform !== 'win32' && fs.existsSync(this.sockPath); i++) await sleep(100)
         // espera o daemon antigo sair de fato (ele segura o flock do pidfile)
         for (let i = 0; i < 50 && oldPid > 0; i++) {
           try {

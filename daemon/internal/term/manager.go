@@ -5,19 +5,15 @@ package term
 // e é o que o ptyManager.ts já fazia. O emulador vt só serve ao Read/WaitIdle.
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/x/vt"
-	"github.com/creack/pty"
 )
 
 const historySeparator = "\r\n\x1b[2m[sessão anterior encerrada]\x1b[0m\r\n"
@@ -26,8 +22,8 @@ type session struct {
 	mu         sync.Mutex
 	req        SpawnReq
 	meta       Info
-	ptmx       *os.File
-	cmd        *exec.Cmd
+	ptmx       ptyIO
+	proc       procHandle
 	emu        *vt.Emulator
 	cols, rows int
 	bracketed  bool
@@ -106,8 +102,8 @@ func (s *session) info() Info {
 	i.Alive = s.alive
 	i.ExitCode = s.exitCode
 	i.Persistent = true // o daemon sobrevive ao app
-	if s.alive && s.cmd != nil && s.cmd.Process != nil {
-		i.Pid = s.cmd.Process.Pid
+	if s.alive && s.proc != nil {
+		i.Pid = s.proc.Pid()
 	} else {
 		i.Pid = 0
 	}
@@ -162,14 +158,8 @@ func (m *mgr) spawn(r SpawnReq, seed []byte) (*session, error) {
 	}
 	name, args := r.Command, r.Args
 	if name == "" {
-		name = os.Getenv("SHELL")
-		if name == "" {
-			name = "/bin/bash"
-		}
-		args = []string{"-l"}
+		name, args = DefaultShell()
 	}
-	cmd := exec.Command(name, args...)
-	cmd.Dir = cwd
 	var env []string
 	if r.Env != nil {
 		// ambiente explícito (já filtrado pelo chamador): não herda o do daemon
@@ -185,20 +175,19 @@ func (m *mgr) spawn(r SpawnReq, seed []byte) (*session, error) {
 		env = os.Environ()
 	}
 	env = append(env, "TERM=xterm-256color", "COLORTERM=truecolor", "COLMEIA_CARD_ID="+r.ID, "COLMEIA_CARD_TITLE="+r.Title)
-	cmd.Env = env
 	spawnMu.RLock() // o reaper não colhe filhos ainda não registrados
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+	ptmx, proc, err := startProc(name, args, cwd, env, cols, rows)
 	if err != nil {
 		spawnMu.RUnlock()
 		return nil, fmt.Errorf("spawn %q: %w", name, err)
 	}
-	track(cmd.Process.Pid)
+	track(proc.Pid())
 	spawnMu.RUnlock()
 	emu := vt.NewEmulator(cols, rows)
 	emu.SetScrollbackSize(5000)
 	s := &session{
 		req: r, meta: Info{ID: r.ID, Preset: r.Preset, Title: r.Title, Cwd: cwd},
-		ptmx: ptmx, cmd: cmd, emu: emu, cols: cols, rows: rows,
+		ptmx: ptmx, proc: proc, emu: emu, cols: cols, rows: rows,
 		ring: append([]byte(nil), seed...), alive: true, lastOut: time.Now(), done: make(chan struct{}),
 		total: int64(len(seed)), created: time.Now(),
 	}
@@ -247,20 +236,8 @@ func (m *mgr) readLoop(s *session) {
 			break
 		}
 	}
-	err := s.cmd.Wait()
-	untrack(s.cmd.Process.Pid)
-	code := 0
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			code = ee.ExitCode()
-			if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-				code = 128 + int(ws.Signal())
-			}
-		} else {
-			code = -1
-		}
-	}
+	code, _ := s.proc.Wait()
+	untrack(s.proc.Pid())
 	_ = s.ptmx.Close()
 	s.mu.Lock()
 	s.alive = false
@@ -438,20 +415,18 @@ func (s *session) terminate() {
 	s.mu.Lock()
 	alive := s.alive
 	pid := 0
-	if s.cmd.Process != nil {
-		pid = s.cmd.Process.Pid
+	if s.proc != nil {
+		pid = s.proc.Pid()
 	}
 	s.mu.Unlock()
 	if !alive || pid == 0 {
 		return
 	}
-	_ = syscall.Kill(-pid, syscall.SIGHUP)
-	_ = syscall.Kill(pid, syscall.SIGHUP)
+	s.proc.Terminate(false)
 	select {
 	case <-s.done:
 	case <-time.After(1500 * time.Millisecond):
-		_ = syscall.Kill(-pid, syscall.SIGKILL)
-		_ = syscall.Kill(pid, syscall.SIGKILL)
+		s.proc.Terminate(true)
 		select {
 		case <-s.done:
 		case <-time.After(time.Second):
@@ -560,7 +535,7 @@ func (m *mgr) Resize(id string, cols, rows int) {
 	s.cols, s.rows = cols, rows
 	s.emu.Resize(cols, rows)
 	if s.alive {
-		_ = pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+		_ = s.ptmx.Resize(cols, rows)
 	}
 }
 

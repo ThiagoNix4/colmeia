@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -153,6 +154,13 @@ func has(xs []string, s string) bool {
 // ManagerCommand: comando do Gerente para a ferramenta/modelo.
 func ManagerCommand(tool, model string) string {
 	o := `"$(cat '{docs}/ORCHESTRATOR.md')"`
+	if runtime.GOOS == "windows" {
+		bin := tool
+		if bin != "opencode" && bin != "codex" && bin != "gemini" {
+			bin = "claude"
+		}
+		o = winPromptArg(bin)
+	}
 	m := strings.TrimSpace(model)
 	mf := func(flag string) string {
 		if m == "" {
@@ -670,4 +678,18 @@ func CardIDsOf(ws Workspace) []string {
 		}
 	}
 	return out
+}
+
+// winPromptArg: expressão PowerShell que lê ORCHESTRATOR.md (UTF-8) como argumento nativo.
+//   - shim .cmd/.bat (npm): passa pelo cmd.exe, que corta em quebra de linha e tem limite de ~8 KB →
+//     manda só uma instrução curta apontando o arquivo.
+//   - PS 5.1 / pwsh <7.3 não escapam `"` em args nativos: escapa no estilo CommandLineToArgvW
+//     (barras antes de aspas dobradas, `"`→`\"`, barras finais dobradas). 7.3+ já escapa sozinho.
+func winPromptArg(bin string) string {
+	const f = `'{docs}\ORCHESTRATOR.md'`
+	return `$(& { $t = Get-Content -Raw -Encoding UTF8 ` + f + `; ` +
+		`$c = Get-Command ` + bin + ` -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
+		`if ($c -and $c.Source -match '\.(cmd|bat)$') { 'Your operating instructions are in the file ' + ` + f + ` + '. Read it first and follow it as your system prompt.' } ` +
+		`elseif ($PSVersionTable.PSVersion -lt [version]'7.3') { $t = [regex]::Replace($t, '(\\*)"', '$1$1\"'); [regex]::Replace($t, '(\\+)\z', '$1$1') } ` +
+		`else { $t } })`
 }

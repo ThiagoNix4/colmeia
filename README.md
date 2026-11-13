@@ -2,20 +2,38 @@
 
 Um canvas infinito onde cada card é um terminal real. Você distribui as IAs (Claude Code, opencode, shells) pelo espaço, vê todas trabalhando ao mesmo tempo e manda mensagens para uma, para várias ou para todas. Um card **Gerente** (Claude) consegue criar e comandar os outros cards sozinho pela CLI `colmeia`.
 
-Feito para Arch Linux (Wayland/GNOME), com Electron (UI) + daemon Go `colmeiad` (PTYs) + xterm.js + React Flow.
+Feito para Linux (testado no Arch, Wayland/GNOME), com versão beta para Windows. Usa Electron (UI) + daemon Go `colmeiad` (PTYs) + xterm.js + React Flow.
 
 ## Requisitos
 - Node.js 20+ e npm. O `node` do sistema é dependência de runtime: a CLI `colmeia` e o statusline dos cards rodam com ele (o pacote `.deb` declara `depends: nodejs`; no AppImage instale o Node à parte). Não há fallback para o executável do app.
 - Go 1.22+ (compila o daemon `colmeiad`)
 - Opcional: `claude` (Claude Code) e `opencode` no PATH
 
-## Instalação
+## Download (Releases)
+Baixe na página **Releases** do GitHub. O código é o mesmo para Linux e Windows; só muda o pacote.
+
+**Linux x64**
+- **AppImage:** `chmod +x Colmeia-0.1.0.AppImage && ./Colmeia-0.1.0.AppImage`
+- **Debian/Ubuntu:** `sudo apt install ./colmeia_0.1.0_amd64.deb`
+
+**Windows 10/11 x64 (beta)**
+- **Portátil:** baixe `Colmeia-0.1.0-win.1-portable.exe` e abra com duplo clique (não precisa instalar).
+- O SmartScreen pode avisar "editor desconhecido" (o app não é assinado): clique em **Mais informações → Executar assim mesmo**.
+- Requisito: [Node.js](https://nodejs.org) 20+ no PATH (usado pela CLI `colmeia` dentro dos cards).
+- Os cards usam PowerShell 7 (`pwsh`) se estiver instalado, senão o Windows PowerShell. Para trocar, defina a variável de ambiente `COLMEIA_SHELL`.
+- Opcional: `claude`, `opencode` etc. no PATH, como no Linux.
+
+Nos dois sistemas o app sobe o daemon `colmeiad` sozinho, e os cards continuam vivos ao fechar a janela.
+
+## Instalação a partir do código (Linux)
 ```sh
 cd ~/colmeia
 npm install            # instala as dependências
 npm run install-app    # build + CLI `colmeia` em ~/.local/bin + atalho no menu
 ```
 Depois disso, abra **Colmeia** pelo menu do GNOME. Para desenvolver, use `npm run dev`.
+
+Para gerar os pacotes: `npm run dist` (Linux: AppImage + .deb) e `npm run dist:win` (Windows: portátil; compilado a partir do Linux, precisa de Go; o instalador NSIS também precisa do `wine`).
 
 ## Uso
 | Ação | Como |

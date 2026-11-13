@@ -19,9 +19,10 @@ import (
 	"colmeia/daemon/internal/api"
 	"colmeia/daemon/internal/auth"
 	"colmeia/daemon/internal/term"
-
-	"golang.org/x/sys/unix"
 )
+
+// errBusy: outra instância segura o lock.
+var errBusy = errors.New("lock em uso")
 
 func firstExisting(cands ...string) string {
 	for _, c := range cands {
@@ -56,33 +57,26 @@ func main() {
 	if *stop {
 		b, err := os.ReadFile(pidf)
 		pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-		if err != nil || pid <= 0 || syscall.Kill(pid, syscall.SIGTERM) != nil {
+		if err != nil || pid <= 0 || stopPid(pid, pidf) != nil {
 			fmt.Fprintln(os.Stderr, "colmeiad não está rodando")
 			os.Exit(1)
 		}
 		return
 	}
 
-	// instância única: flock no pidfile
+	// instância única: lock do pidfile (flock no unix, abertura exclusiva no Windows)
 	_ = os.MkdirAll(cfgD, 0o755)
 	var lock *os.File
-	var lerr error
 	for i := 0; i < 50; i++ { // ~5s: o daemon antigo pode estar encerrando
-		f, err := os.OpenFile(pidf, os.O_RDWR|os.O_CREATE, 0o644)
-		if err != nil {
+		f, err := acquireLock(pidf)
+		if err == nil {
+			lock = f
+			break
+		}
+		if !errors.Is(err, errBusy) { // L9: erro real (permissão etc.), não "já rodando"
 			fmt.Fprintln(os.Stderr, "pidfile:", err)
 			os.Exit(1)
 		}
-		if lerr = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); lerr == nil {
-			// N6: o arquivo trancado precisa ser o que está no disco
-			var a, b unix.Stat_t
-			if unix.Fstat(int(f.Fd()), &a) == nil && unix.Stat(pidf, &b) == nil && a.Ino == b.Ino && a.Dev == b.Dev {
-				lock = f
-				break
-			}
-			lerr = errors.New("pidfile trocado")
-		}
-		f.Close()
 		time.Sleep(100 * time.Millisecond)
 	}
 	if lock == nil {
@@ -90,18 +84,13 @@ func main() {
 		os.Exit(0)
 	}
 
-	// órfãos dos cards são reparentados ao daemon (peer creds os rejeita)
-	_ = unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0)
+	setupProcess()
 
 	if *sock == "" {
 		*sock = os.Getenv("COLMEIA_SOCK_PATH")
 	}
 	if *sock == "" {
-		rt := os.Getenv("XDG_RUNTIME_DIR")
-		if rt == "" {
-			rt = os.TempDir()
-		}
-		*sock = filepath.Join(rt, "colmeia.sock")
+		*sock = defaultSock()
 	}
 	exe, _ := os.Executable()
 	exeDir := filepath.Dir(exe)
@@ -126,33 +115,23 @@ func main() {
 		os.Exit(1)
 	}
 	// pid só depois do bind do socket: quem perde não suja o pidfile
-	_ = lock.Truncate(0)
-	_, _ = lock.WriteAt([]byte(strconv.Itoa(os.Getpid())), 0)
+	writePid(lock, pidf, os.Getpid())
 	fmt.Println("colmeiad pronto:", *sock, "pid", os.Getpid())
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	notifyStop(ch) // Windows: evento de parada graceful (sem SIGTERM)
 	<-ch
 
 	// shutdown: histórico em disco, depois derruba os filhos (sem apagar histórico)
 	srv.Close()
 	tm.FlushAll()
 	infos := tm.List()
-	for _, i := range infos {
-		if i.Alive && i.Pid > 0 {
-			_ = syscall.Kill(-i.Pid, syscall.SIGHUP)
-			_ = syscall.Kill(i.Pid, syscall.SIGHUP)
-		}
-	}
+	killChildren(infos, false)
 	time.Sleep(500 * time.Millisecond)
-	for _, i := range infos {
-		if i.Alive && i.Pid > 0 {
-			_ = syscall.Kill(-i.Pid, syscall.SIGKILL)
-			_ = syscall.Kill(i.Pid, syscall.SIGKILL)
-		}
-	}
+	killChildren(infos, true)
 	tm.FlushAll()
-	_ = lock.Truncate(0) // N6: não remove (outra instância pode já ter o inode)
+	clearPid(lock, pidf)
 }
 
 // binVersion: sha256 (12 hex) do executável — muda a cada build.
