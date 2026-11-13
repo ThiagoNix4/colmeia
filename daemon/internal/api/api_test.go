@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"net"
-	"path/filepath"
 	"testing"
 
 	"colmeia/daemon/internal/auth"
@@ -38,13 +37,13 @@ func call(t *testing.T, c net.Conn, r *bufio.Reader, cmd string, args Args) map[
 func TestServerPingAndAttach(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	sock := filepath.Join(t.TempDir(), "s.sock")
+	sock := testSockPath(t)
 	srv := New(Config{Term: fakeTerm{}, SockPath: sock, DaemonPid: 999999})
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
 	}
 	defer srv.Close()
-	c, err := net.Dial("unix", sock)
+	c, err := testDial(sock)
 	if err != nil {
 		t.Fatal(err)
 	}

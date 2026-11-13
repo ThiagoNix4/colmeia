@@ -1,0 +1,3 @@
+# scripts do Windows precisam de CRLF (cmd.exe / NSIS)
+*.cmd text eol=crlf
+*.nsh text eol=crlf

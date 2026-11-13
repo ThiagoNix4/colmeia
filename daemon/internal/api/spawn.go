@@ -23,10 +23,11 @@ func shQuote(s string) string {
 
 // statusCmd: comando da statusline (executado pelo Claude Code, não pelo nosso shell).
 func statusCmd(cliDir string) string {
-	f := filepath.Join(cliDir, "colmeia-statusline.mjs")
 	if runtime.GOOS == "windows" {
-		return `node "` + f + `"` // cmd/PowerShell/bash entendem aspas duplas
+		// wrapper .cmd: node do PATH ou o Colmeia.exe (COLMEIA_NODE); cmd/PowerShell/bash entendem aspas duplas
+		return `"` + filepath.Join(cliDir, "colmeia-statusline.cmd") + `"`
 	}
+	f := filepath.Join(cliDir, "colmeia-statusline.mjs")
 	return "node " + shQuote(f)
 }
 

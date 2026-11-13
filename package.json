@@ -60,6 +60,12 @@
         "nsis"
       ]
     },
+    "nsis": {
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
     "deb": {
       "depends": [
         "libgtk-3-0",

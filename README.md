@@ -17,12 +17,12 @@ Baixe na página **Releases** do GitHub. O código é o mesmo para Linux e Windo
 - **Debian/Ubuntu:** `sudo apt install ./colmeia_0.1.0_amd64.deb`
 
 **Windows 10/11 x64 (beta)**
-- **Instalador:** baixe `Colmeia-Setup-0.1.0-win.1.exe`, execute e abra **Colmeia** pelo menu Iniciar.
-- **Portátil:** baixe `Colmeia-0.1.0-win.1-portable.exe` e abra com duplo clique (não precisa instalar).
+- **Instalador:** baixe `Colmeia-Setup-0.1.0-win.2.exe`, execute e abra **Colmeia** pelo menu Iniciar.
+- **Portátil:** baixe `Colmeia-0.1.0-win.2-portable.exe` e abra com duplo clique (não precisa instalar).
 - O SmartScreen pode avisar "editor desconhecido" (o app não é assinado): clique em **Mais informações → Executar assim mesmo**.
-- **Não precisa instalar nada além do app** para os cards de terminal. A CLI `colmeia` dentro dos cards usa o Node.js se estiver no PATH; senão usa o próprio `Colmeia.exe` como Node.
+- **Não precisa instalar nada além do app** para os cards de terminal. A CLI `colmeia` e a linha de status do Claude usam o Node.js se estiver no PATH; senão usam o próprio `Colmeia.exe` como Node.
 - Para os cards de agente (Gerente, Apis…): instale o [Claude Code](https://docs.claude.com/claude-code) (`irm https://claude.ai/install.ps1 | iex` no PowerShell) e faça login uma vez com `claude`. Ele exige o [Git for Windows](https://git-scm.com/download/win).
-- Opcional: [Node.js](https://nodejs.org) 20+ (só para a linha de status do Claude dentro dos cards), [PowerShell 7](https://aka.ms/powershell) (`pwsh`, usado no lugar do Windows PowerShell se instalado; troque com `COLMEIA_SHELL`), `opencode`.
+- Opcional: [PowerShell 7](https://aka.ms/powershell) (`pwsh`, usado no lugar do Windows PowerShell se instalado; troque com `COLMEIA_SHELL`), `opencode`.
 - Ao atualizar, o instalador fecha o daemon antigo; os cards do workspace são recriados ao abrir o app. Guia completo e solução de problemas: [docs/WINDOWS.md](docs/WINDOWS.md).
 
 Nos dois sistemas o app sobe o daemon `colmeiad` sozinho, e os cards continuam vivos ao fechar a janela.

@@ -4,7 +4,7 @@ Windows 10/11 x64. O app empacota tudo que os cards de terminal precisam (UI Ele
 
 ## Para usar (usuário final)
 
-1. Baixe `Colmeia Setup <versão>.exe` (instalador) ou `Colmeia <versão>.exe` (portátil) na página Releases.
+1. Baixe `Colmeia-Setup-<versão>.exe` (instalador) ou `Colmeia-<versão>-portable.exe` (portátil) na página Releases.
 2. Execute. O SmartScreen pode avisar "editor desconhecido" (o app não é assinado): **Mais informações → Executar assim mesmo**.
 3. Abra **Colmeia** pelo menu Iniciar. Cards **Terminal** já funcionam.
 
@@ -14,13 +14,12 @@ Windows 10/11 x64. O app empacota tudo que os cards de terminal precisam (UI Ele
 |---|---|---|
 | Cards de agente (Gerente, Apis Infimus/Medius) | [Claude Code](https://docs.claude.com/claude-code): no PowerShell, `irm https://claude.ai/install.ps1 \| iex`; depois rode `claude` uma vez para fazer login | só para agentes |
 | Claude Code no Windows | [Git for Windows](https://git-scm.com/download/win) (o Claude Code usa o Git Bash) | só para agentes |
-| Linha de status do Claude dentro do card | [Node.js](https://nodejs.org) 20+ LTS | não (sem ele, só não aparece a linha de status) |
 | Shell mais moderno nos cards | [PowerShell 7](https://aka.ms/powershell) (`pwsh`); é usado automaticamente se estiver no PATH | não |
 | Agentes opencode | `opencode` no PATH | não |
 
 Depois de instalar algo, **feche e reabra o Colmeia** (os cards herdam o PATH do momento em que o daemon subiu; se o PATH mudou, use "Reiniciar daemon" no aviso ou reinicie o Windows).
 
-A CLI `colmeia` dentro dos cards **não precisa de Node.js**: `cli\colmeia.cmd` usa o `node` do PATH se existir e, senão, o próprio `Colmeia.exe` em modo Node (variável `COLMEIA_NODE`, definida pelo app).
+A CLI `colmeia` e a linha de status do Claude (que também alimenta o medidor de uso) **não precisam de Node.js**: `cli\colmeia.cmd` e `cli\colmeia-statusline.cmd` usam o `node` do PATH se existir e, senão, o próprio `Colmeia.exe` em modo Node (variável `COLMEIA_NODE`, definida pelo app).
 
 ## Como funciona (resumo)
 
@@ -29,6 +28,7 @@ A CLI `colmeia` dentro dos cards **não precisa de Node.js**: `cli\colmeia.cmd` 
 - Shell dos cards: `pwsh.exe` se estiver no PATH, senão `powershell.exe`. Override: `COLMEIA_SHELL`.
 - Log do daemon: `%USERPROFILE%\.config\colmeia\colmeiad.log`.
 - Ao atualizar pelo instalador, o `colmeiad.exe` antigo é encerrado (`build/installer.nsh`) para o novo entrar em uso; os cards do workspace são recriados ao abrir o app. No portátil, o app pergunta se reinicia o daemon quando a versão muda: escolha **Reiniciar daemon**.
+- Portátil sem Node.js instalado: a CLI `colmeia` dentro dos cards usa o executável extraído pelo portátil, que só existe enquanto ele está aberto. Para agentes que continuam trabalhando com o app fechado, use o instalador (ou instale o Node.js).
 
 ## Solução de problemas
 
@@ -54,17 +54,21 @@ git clone https://github.com/ThiagoNix4/colmeia
 cd colmeia
 npm install
 npm run dev        :: desenvolvimento (compila o daemon antes: npm run build:daemon:win)
-npm run dist:win   :: gera dist\Colmeia Setup <versão>.exe e dist\Colmeia <versão>.exe
+npm run dist:win   :: gera dist\Colmeia-Setup-<versão>.exe e dist\Colmeia-<versão>-portable.exe
 ```
+
+Release com versão própria (sem mudar o `package.json`): `npx electron-vite build`, `npm run build:daemon:win` e `npx electron-builder --win portable nsis --x64 --config.extraMetadata.version=0.1.0-win.N`.
 
 Se `npm run dev` disser `Electron uninstall`, rode `node node_modules\electron\install.js` (o download do Electron no postinstall falhou).
 
-Testes: `go vet ./...` e `go build ./...` em `daemon\` (Windows e `set GOOS=linux`); `npx tsc --noEmit`. Os testes de `internal/api` e `internal/term` assumem Unix (`sh`, socket unix) e falham no Windows; rode-os no Linux.
+Testes: `go vet ./...` e `go build ./...` em `daemon\` (Windows e `set GOOS=linux`); `go test ./...` (passa no Windows e no Linux; no Windows os testes de `internal/term` rodam o PowerShell via ConPTY e os de `internal/api` usam named pipe); `npx tsc --noEmit`.
 
-## Correções da versão Windows beta 2
+## Correções da versão Windows beta 2 (v0.1.0-win.2)
 
 - ConPTY: `conpty.Spawn` resolvia nome relativo (`powershell.exe`) contra o cwd do card em vez do PATH → nenhum card iniciava. Agora o nome é resolvido com `exec.LookPath` (`daemon/internal/term/pty_windows.go`).
 - Atualização: a pasta do daemon copiado era reaproveitada por versão, então um instalador novo com a mesma versão continuava usando o daemon antigo. Agora a pasta leva o hash do binário, e o instalador encerra o daemon antigo.
-- CLI `colmeia` sem Node.js (fallback para `Colmeia.exe`).
+- CLI `colmeia` e linha de status do Claude sem Node.js (fallback para `Colmeia.exe`).
 - Erro de spawn agora aparece no card em vez de deixá-lo parado em "starting".
 - `npm run build:daemon:win` funciona no CMD/PowerShell (antes exigia bash).
+- Testes Go passam no Windows (ConPTY + named pipe).
+- Atualizar pelo instalador reinicia os terminais (o daemon antigo é encerrado); o workspace e os cards são mantidos.

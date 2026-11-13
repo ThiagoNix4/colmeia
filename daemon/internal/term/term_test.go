@@ -2,6 +2,7 @@ package term
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -11,10 +12,23 @@ func spawnSh(t *testing.T) (Manager, string) {
 	dir := t.TempDir()
 	m := New(Options{HistoryDir: dir})
 	t.Cleanup(func() { _ = m.Kill("c1") })
-	if _, _, err := m.Ensure(SpawnReq{ID: "c1", Command: "sh", Cwd: dir, Cols: 80, Rows: 24}); err != nil {
+	// windows: nome relativo de propósito (cobre a resolução via PATH no ConPTY);
+	// os comandos dos testes (echo $((…)), sleep) funcionam no sh e no PowerShell
+	sh := "sh"
+	if runtime.GOOS == "windows" {
+		sh = "powershell.exe"
+	}
+	if _, _, err := m.Ensure(SpawnReq{ID: "c1", Command: sh, Args: testShellArgs(), Cwd: dir, Cols: 80, Rows: 24}); err != nil {
 		t.Fatal(err)
 	}
 	return m, dir
+}
+
+func testShellArgs() []string {
+	if runtime.GOOS == "windows" {
+		return []string{"-NoLogo", "-NoProfile"}
+	}
+	return nil
 }
 
 func TestSendRead(t *testing.T) {
