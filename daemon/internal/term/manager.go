@@ -484,6 +484,9 @@ func (m *mgr) Send(id, text string, enter bool) bool {
 	if !alive {
 		return false
 	}
+	if m.sendPaced(id, text, bracketed, enter) { // só conhost antigo (Windows 10); nos demais é no-op
+		return true
+	}
 	payload := text
 	if bracketed && containsNL(text) {
 		payload = "\x1b[200~" + text + "\x1b[201~"

@@ -29,7 +29,37 @@ func DefaultShell() (string, []string) {
 
 type winPTY struct{ c *conpty.ConPty }
 
-func (p winPTY) Read(b []byte) (int, error)  { return p.c.Read(b) }
+// legacyConhost: conhost do Windows 10 / Server até 2022 (o do Windows 11 trata SI/SO como controle).
+var legacyConhost = func() bool {
+	_, _, build := windows.RtlGetNtVersionNumbers()
+	return build < 22000
+}()
+
+func (p winPTY) Read(b []byte) (int, error) {
+	n, err := p.c.Read(b)
+	if legacyConhost {
+		blankControlCells(b[:n])
+	}
+	return n, err
+}
+
+// blankControlCells troca por espaço os bytes de controle que o conhost antigo devolve como célula.
+// Com a página de código UTF-8 (Claude Code, opencode…), um SI (0x0F) escrito pelo programa vira uma
+// célula no buffer do conhost: o cursor dele anda uma coluna e o byte volta cru na saída do ConPTY.
+// O xterm.js (e o emulador do daemon) ignoram o byte, então tudo que vem depois na linha sai uma
+// coluna à esquerda e o que é apagado fica na tela até a linha ser repintada. Espaço ocupa a mesma
+// célula que o conhost contou; os controles que ele emite de verdade (BEL, BS, TAB, LF, CR, ESC) ficam.
+// Troca de 1 byte por 1 byte, todos < 0x80: não quebra UTF-8 nem muda o tamanho do chunk.
+func blankControlCells(b []byte) {
+	for i, c := range b {
+		switch {
+		case c == 0x07, c == 0x08, c == 0x09, c == 0x0a, c == 0x0d, c == 0x1b:
+		case c < 0x20, c == 0x7f:
+			b[i] = ' '
+		}
+	}
+}
+
 func (p winPTY) Write(b []byte) (int, error) { return p.c.Write(b) }
 func (p winPTY) Close() error                { return p.c.Close() }
 func (p winPTY) Resize(cols, rows int) error { return p.c.Resize(cols, rows) }
