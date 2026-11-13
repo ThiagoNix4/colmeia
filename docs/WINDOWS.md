@@ -15,7 +15,7 @@ Windows 10/11 x64. O app empacota tudo que os cards de terminal precisam (UI Ele
 | Cards de agente (Gerente, Apis Infimus/Medius) | [Claude Code](https://docs.claude.com/claude-code): no PowerShell, `irm https://claude.ai/install.ps1 \| iex`; depois rode `claude` uma vez para fazer login | só para agentes |
 | Claude Code no Windows | [Git for Windows](https://git-scm.com/download/win) (o Claude Code usa o Git Bash) | só para agentes |
 | Shell mais moderno nos cards | [PowerShell 7](https://aka.ms/powershell) (`pwsh`); é usado automaticamente se estiver no PATH | não |
-| Agentes opencode | `opencode` no PATH | não |
+| Agentes opencode | `npm i -g opencode-ai` (ou outro instalador); precisa estar no PATH | não |
 
 Depois de instalar algo, **feche e reabra o Colmeia** (os cards herdam o PATH do momento em que o daemon subiu; se o PATH mudou, use "Reiniciar daemon" no aviso ou reinicie o Windows).
 
@@ -25,9 +25,10 @@ A CLI `colmeia` e a linha de status do Claude (que também alimenta o medidor de
 
 - O app copia `colmeiad.exe`, `cli\` e `docs\` para `%USERPROFILE%\.local\share\colmeia\<versão>-<hash do daemon>\` e sobe o daemon destacado: os cards continuam vivos ao fechar a janela.
 - Transporte: named pipe `\\.\pipe\colmeia-<USUÁRIO>` (ACL só do usuário). Override: `COLMEIA_SOCK_PATH`.
-- Shell dos cards: `pwsh.exe` se estiver no PATH, senão `powershell.exe`. Override: `COLMEIA_SHELL`.
+- Shell dos cards: `pwsh.exe` se estiver no PATH, senão `powershell.exe`. Override: `COLMEIA_SHELL` (precisa ser um PowerShell: os argumentos passados são `-NoLogo`, `-NoExit`, `-Command`).
+- Política de execução: os cards recebem `PSExecutionPolicyPreference=RemoteSigned` (escopo do processo, não muda o sistema), para que CLIs instaladas pelo npm (`opencode`, `codex`, `gemini`…), que são scripts `.ps1`, rodem. Se a variável já estiver definida no ambiente, o valor é mantido.
 - Log do daemon: `%USERPROFILE%\.config\colmeia\colmeiad.log`.
-- Ao atualizar pelo instalador, o `colmeiad.exe` antigo é encerrado (`build/installer.nsh`) para o novo entrar em uso; os cards do workspace são recriados ao abrir o app. No portátil, o app pergunta se reinicia o daemon quando a versão muda: escolha **Reiniciar daemon**.
+- Ao atualizar pelo instalador, o `colmeiad.exe` antigo é encerrado (`build/installer.nsh`: primeiro `--stop`, que grava o histórico dos cards; `taskkill` só de reserva) para o novo entrar em uso; os cards do workspace são recriados ao abrir o app. No portátil, o app pergunta se reinicia o daemon quando a versão muda: escolha **Reiniciar daemon**.
 - Portátil sem Node.js instalado: a CLI `colmeia` dentro dos cards usa o executável extraído pelo portátil, que só existe enquanto ele está aberto. Para agentes que continuam trabalhando com o app fechado, use o instalador (ou instale o Node.js).
 
 ## Solução de problemas
@@ -62,6 +63,18 @@ Release com versão própria (sem mudar o `package.json`): `npx electron-vite bu
 Se `npm run dev` disser `Electron uninstall`, rode `node node_modules\electron\install.js` (o download do Electron no postinstall falhou).
 
 Testes: `go vet ./...` e `go build ./...` em `daemon\` (Windows e `set GOOS=linux`); `go test ./...` (passa no Windows e no Linux; no Windows os testes de `internal/term` rodam o PowerShell via ConPTY e os de `internal/api` usam named pipe); `npx tsc --noEmit`.
+
+## Correções da versão Windows beta 3 (v0.1.0-win.3)
+
+- **opencode (e outras CLIs do npm) não abriam:** o PowerShell recusava o shim `opencode.ps1` ("a execução de scripts foi desabilitada"). Os cards agora rodam com `PSExecutionPolicyPreference=RemoteSigned` (`daemon/internal/api/spawn.go`).
+- **Letra apagada continuava na tela (Windows 10):** com a página de código UTF-8 (Claude Code, opencode), o conhost do Windows 10 devolve bytes de controle como `SI` (0x0F) como se fossem uma célula; o terminal ignorava o byte e a linha ficava uma coluna desalinhada, então o backspace apagava a célula errada até a linha ser repintada. O daemon troca esses bytes por espaço (`blankControlCells` em `daemon/internal/term/pty_windows.go`; só em builds anteriores ao Windows 11).
+- **`colmeia send` de texto longo chegava cortado (Windows 10):** o conhost descarta os marcadores de bracketed paste e o Claude Code perdia o começo do texto. O envio agora é feito em pedaços de 256 bytes espaçados (`daemon/internal/term/paced_windows.go`).
+- **CLI `colmeia` devolvia código de saída errado:** `%errorlevel%` dentro de bloco `( )` no `colmeia.cmd` (sempre 0 com Node, sempre 1 sem). Corrigido; `colmeia wait` volta a sinalizar timeout.
+- Instalador: para o daemon com `--stop` antes do `taskkill` (não perde os últimos segundos de histórico) e o desinstalador encerra o daemon e remove `%USERPROFILE%.localsharecolmeia`.
+- Notas: o vault do Obsidian é detectado em `%APPDATA%obsidianobsidian.json`.
+- UI: cabeçalho do card e da nota mostram só o nome da pasta/arquivo; a pasta do workspace é abreviada com `~`.
+- Cópias antigas do daemon em `.localsharecolmeia` são removidas ao atualizar (exceto a de um daemon ainda em uso).
+- Workspaces e notas com nome reservado do Windows (`con`, `nul`, `com1`…) ganham o prefixo `_`; `colmeia send -` aceita CRLF; aspas simples no caminho do perfil não quebram mais o preset Gerente.
 
 ## Correções da versão Windows beta 2 (v0.1.0-win.2)
 
