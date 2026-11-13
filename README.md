@@ -5,7 +5,7 @@ Um canvas infinito onde cada card é um terminal real. Você distribui as IAs (C
 Feito para Linux (testado no Arch, Wayland/GNOME), com versão beta para Windows. Usa Electron (UI) + daemon Go `colmeiad` (PTYs) + xterm.js + React Flow.
 
 ## Requisitos
-- Node.js 20+ e npm. O `node` do sistema é dependência de runtime: a CLI `colmeia` e o statusline dos cards rodam com ele (o pacote `.deb` declara `depends: nodejs`; no AppImage instale o Node à parte). Não há fallback para o executável do app.
+- Node.js 20+ e npm. O `node` do sistema é dependência de runtime: a CLI `colmeia` e o statusline dos cards rodam com ele (o pacote `.deb` declara `depends: nodejs`; no AppImage instale o Node à parte). No Linux não há fallback para o executável do app (no Windows há; veja abaixo).
 - Go 1.22+ (compila o daemon `colmeiad`)
 - Opcional: `claude` (Claude Code) e `opencode` no PATH
 
@@ -20,9 +20,10 @@ Baixe na página **Releases** do GitHub. O código é o mesmo para Linux e Windo
 - **Instalador:** baixe `Colmeia-Setup-0.1.0-win.1.exe`, execute e abra **Colmeia** pelo menu Iniciar.
 - **Portátil:** baixe `Colmeia-0.1.0-win.1-portable.exe` e abra com duplo clique (não precisa instalar).
 - O SmartScreen pode avisar "editor desconhecido" (o app não é assinado): clique em **Mais informações → Executar assim mesmo**.
-- Requisito: [Node.js](https://nodejs.org) 20+ no PATH (usado pela CLI `colmeia` dentro dos cards).
-- Os cards usam PowerShell 7 (`pwsh`) se estiver instalado, senão o Windows PowerShell. Para trocar, defina a variável de ambiente `COLMEIA_SHELL`.
-- Opcional: `claude`, `opencode` etc. no PATH, como no Linux.
+- **Não precisa instalar nada além do app** para os cards de terminal. A CLI `colmeia` dentro dos cards usa o Node.js se estiver no PATH; senão usa o próprio `Colmeia.exe` como Node.
+- Para os cards de agente (Gerente, Apis…): instale o [Claude Code](https://docs.claude.com/claude-code) (`irm https://claude.ai/install.ps1 | iex` no PowerShell) e faça login uma vez com `claude`. Ele exige o [Git for Windows](https://git-scm.com/download/win).
+- Opcional: [Node.js](https://nodejs.org) 20+ (só para a linha de status do Claude dentro dos cards), [PowerShell 7](https://aka.ms/powershell) (`pwsh`, usado no lugar do Windows PowerShell se instalado; troque com `COLMEIA_SHELL`), `opencode`.
+- Ao atualizar, o instalador fecha o daemon antigo; os cards do workspace são recriados ao abrir o app. Guia completo e solução de problemas: [docs/WINDOWS.md](docs/WINDOWS.md).
 
 Nos dois sistemas o app sobe o daemon `colmeiad` sozinho, e os cards continuam vivos ao fechar a janela.
 
@@ -34,7 +35,7 @@ npm run install-app    # build + CLI `colmeia` em ~/.local/bin + atalho no menu
 ```
 Depois disso, abra **Colmeia** pelo menu do GNOME. Para desenvolver, use `npm run dev`.
 
-Para gerar os pacotes: `npm run dist` (Linux: AppImage + .deb) e `npm run dist:win` (Windows: instalador + portátil; compilado a partir do Linux, precisa de Go e `wine`).
+Para gerar os pacotes: `npm run dist` (Linux: AppImage + .deb) e `npm run dist:win` (Windows: instalador + portátil; no Windows roda direto com Node + Go, a partir do Linux precisa também de `wine`). Veja [docs/WINDOWS.md](docs/WINDOWS.md).
 
 ## Uso
 | Ação | Como |

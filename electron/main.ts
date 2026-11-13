@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
+import { createHash } from 'node:crypto'
 import { DaemonClient } from './daemonClient'
 import type { LinkEdge, NoteCard, Preset, SpawnRequest, UsageSettings, Workspace } from './types'
 
@@ -12,6 +13,9 @@ const socketPath =
     ? `\\\\.\\pipe\\colmeia-${os.userInfo().username}`
     : path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'colmeia.sock'))
 const EXE = process.platform === 'win32' ? '.exe' : ''
+// win32: Node.js costuma não estar instalado; cli/colmeia.cmd usa o próprio Colmeia.exe como Node
+// (ELECTRON_RUN_AS_NODE) via esta variável, herdada daemon → cards.
+if (process.platform === 'win32' && !process.env.COLMEIA_NODE) process.env.COLMEIA_NODE = process.execPath
 
 // Faz o GNOME associar a janela ao atalho colmeia.desktop (ícone na dock)
 app.setName('colmeia')
@@ -65,7 +69,13 @@ const unpacked = (p: string) => p.replace('app.asar' + path.sep, 'app.asar.unpac
 /** Copia colmeiad+cli+docs p/ ~/.local/share/colmeia/<versão>/ (atômico: tmp + rename); reaproveita se já existe. */
 function stageAppImage(bin: string, cli: string, docs: string) {
   const base = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local/share'), 'colmeia')
-  const dest = path.join(base, app.getVersion())
+  // win32: o instalador sobrescreve o app com a mesma versão; sem o hash do binário a pasta antiga
+  // (com o colmeiad velho) seria reaproveitada para sempre. Pasta nova → daemon novo é detectado.
+  const tag =
+    process.platform === 'win32'
+      ? `${app.getVersion()}-${createHash('sha256').update(fs.readFileSync(bin)).digest('hex').slice(0, 8)}`
+      : app.getVersion()
+  const dest = path.join(base, tag)
   const out = { bin: path.join(dest, 'colmeiad' + EXE), cli: path.join(dest, 'cli'), docs: path.join(dest, 'docs') }
   if (fs.existsSync(out.bin) && fs.existsSync(out.cli) && fs.existsSync(out.docs)) return out
   fs.mkdirSync(base, { recursive: true })

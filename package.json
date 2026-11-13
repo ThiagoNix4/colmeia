@@ -15,7 +15,7 @@
   "scripts": {
     "dev": "electron-vite dev -- --ozone-platform-hint=auto",
     "build": "electron-vite build && npm run build:daemon",
-    "build:daemon:win": "cd daemon && GOOS=windows GOARCH=amd64 go build -o ../out/colmeiad.exe ./cmd/colmeiad",
+    "build:daemon:win": "node scripts/build-daemon-win.mjs",
     "build:daemon": "cd daemon && go build -o ../out/colmeiad ./cmd/colmeiad",
     "start": "electron-vite preview -- --ozone-platform-hint=auto",
     "dist": "npm run build && electron-builder --linux",

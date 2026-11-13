@@ -148,6 +148,12 @@ function TerminalNode({ id, data, selected, positionAbsoluteX, positionAbsoluteY
         })
         doFit()
       })
+      .catch((e) => {
+        // sem isto o card fica mudo em "starting" quando o spawn falha
+        if (disposed) return
+        term.write(`\r\n\x1b[31m[colmeia] falha ao iniciar: ${e instanceof Error ? e.message : String(e)}\x1b[0m\r\n`)
+        patchCard(id, { status: 'exited', exitCode: null })
+      })
 
     return () => {
       disposed = true
