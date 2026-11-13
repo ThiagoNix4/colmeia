@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -107,6 +108,13 @@ func startProc(name string, args []string, dir string, env []string, cols, rows 
 	cp, err := conpty.New(cols, rows, 0)
 	if err != nil {
 		return nil, nil, err
+	}
+	// conpty.Spawn junta nome relativo com attr.Dir (semântica de syscall.StartProcess)
+	// e nunca consulta o PATH: "powershell.exe" virava <cwd>\powershell.exe.
+	if filepath.Base(name) == name {
+		if lp, err := exec.LookPath(name); err == nil {
+			name = lp
+		}
 	}
 	argv := append([]string{name}, args...)
 	// ComposeCommandLine (padrão do conpty) escapa cada arg no estilo CommandLineToArgvW
