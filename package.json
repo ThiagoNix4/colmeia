@@ -1,0 +1,88 @@
+{
+  "name": "colmeia",
+  "version": "0.1.0",
+  "description": "Canvas espacial de terminais para orquestrar IAs",
+  "author": {
+    "name": "Thiago",
+    "email": "noreply@colmeia.local"
+  },
+  "homepage": "https://colmeia.local",
+  "license": "MIT",
+  "main": "out/main/main.js",
+  "bin": {
+    "colmeia": "cli/colmeia.mjs"
+  },
+  "scripts": {
+    "dev": "electron-vite dev -- --ozone-platform-hint=auto",
+    "build": "electron-vite build && npm run build:daemon",
+    "build:daemon": "cd daemon && go build -o ../out/colmeiad ./cmd/colmeiad",
+    "start": "electron-vite preview -- --ozone-platform-hint=auto",
+    "dist": "npm run build && electron-builder --linux",
+    "install-app": "bash scripts/install.sh"
+  },
+  "build": {
+    "appId": "dev.colmeia.app",
+    "productName": "Colmeia",
+    "files": [
+      "assets/**",
+      "out/**",
+      "cli/**",
+      "docs/**"
+    ],
+    "asarUnpack": [
+      "out/colmeiad",
+      "cli/**",
+      "docs/**"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "maintainer": "Thiago <noreply@colmeia.local>",
+      "icon": "assets/icon.png",
+      "syncDesktopName": true
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "nodejs"
+      ]
+    },
+    "toolsets": {
+      "appimage": "1.0.3"
+    }
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
+    "@xyflow/react": "^12.12.1",
+    "electron": "^45.3.0",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "zustand": "^5.1.0"
+  },
+  "allowScripts": {
+    "electron-winstaller": false
+  },
+  "desktopName": "colmeia.desktop"
+}

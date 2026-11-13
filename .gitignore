@@ -1,0 +1,8 @@
+node_modules/
+out/
+dist/
+.tasks/
+*.log
+desktop/build/bin/
+desktop/frontend/dist/
+out/desktop-renderer/

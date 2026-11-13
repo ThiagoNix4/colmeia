@@ -1,0 +1,4 @@
+#!/bin/sh
+# Lançador do Colmeia
+cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
+exec ./node_modules/.bin/electron . --ozone-platform-hint=auto "$@"
