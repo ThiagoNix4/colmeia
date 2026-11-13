@@ -17,6 +17,7 @@ Baixe na página **Releases** do GitHub. O código é o mesmo para Linux e Windo
 - **Debian/Ubuntu:** `sudo apt install ./colmeia_0.1.0_amd64.deb`
 
 **Windows 10/11 x64 (beta)**
+- **Instalador:** baixe `Colmeia-Setup-0.1.0-win.1.exe`, execute e abra **Colmeia** pelo menu Iniciar.
 - **Portátil:** baixe `Colmeia-0.1.0-win.1-portable.exe` e abra com duplo clique (não precisa instalar).
 - O SmartScreen pode avisar "editor desconhecido" (o app não é assinado): clique em **Mais informações → Executar assim mesmo**.
 - Requisito: [Node.js](https://nodejs.org) 20+ no PATH (usado pela CLI `colmeia` dentro dos cards).
@@ -33,7 +34,7 @@ npm run install-app    # build + CLI `colmeia` em ~/.local/bin + atalho no menu
 ```
 Depois disso, abra **Colmeia** pelo menu do GNOME. Para desenvolver, use `npm run dev`.
 
-Para gerar os pacotes: `npm run dist` (Linux: AppImage + .deb) e `npm run dist:win` (Windows: portátil; compilado a partir do Linux, precisa de Go; o instalador NSIS também precisa do `wine`).
+Para gerar os pacotes: `npm run dist` (Linux: AppImage + .deb) e `npm run dist:win` (Windows: instalador + portátil; compilado a partir do Linux, precisa de Go e `wine`).
 
 ## Uso
 | Ação | Como |
