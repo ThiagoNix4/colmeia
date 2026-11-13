@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -86,6 +87,12 @@ func indexDir() string     { return filepath.Join(auth.ConfigDir(), "notes") }
 func configFile() string   { return filepath.Join(auth.ConfigDir(), "notes-config.json") }
 func fallbackRoot() string { return filepath.Join(auth.ConfigDir(), "notes-files") }
 func obsidianFile() string {
+	if runtime.GOOS == "windows" {
+		// Windows: o Obsidian guarda a lista de vaults em %APPDATA%/obsidian/obsidian.json
+		if d, err := os.UserConfigDir(); err == nil {
+			return filepath.Join(d, "obsidian", "obsidian.json")
+		}
+	}
 	h, _ := os.UserHomeDir()
 	return filepath.Join(h, ".config", "obsidian", "obsidian.json")
 }
@@ -115,7 +122,7 @@ func slugify(title string) string {
 	if s == "" {
 		return "nota"
 	}
-	return s
+	return store.ReserveDevice(s)
 }
 
 // Root: env → notes-config.json → vault do Obsidian → fallback (cache 3s).

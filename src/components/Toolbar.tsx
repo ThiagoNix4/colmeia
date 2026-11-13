@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import Logo from './Logo'
 import AgentsMenu from './AgentsMenu'
@@ -13,10 +13,27 @@ interface Props {
   onDeleteWorkspace: (name: string) => Promise<void>
 }
 
+// encurta o home p/ ~ (Windows: sem diferenciar maiúsculas; Linux: lógica antiga)
+function shortenHome(cwd: string, home: string) {
+  if (/^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith('\\')) {
+    const h = home.replace(/[\\/]+$/, '')
+    if (h && cwd.toLowerCase().startsWith(h.toLowerCase())) {
+      const rest = cwd.slice(h.length)
+      if (rest === '' || /^[\\/]/.test(rest)) return '~' + rest
+    }
+    return cwd
+  }
+  return cwd.replace(/^\/home\/[^/]+/, '~')
+}
+
 const sanitize = (raw: string) => raw.trim().replace(/[^\w.-]+/g, '_')
 
 export default function Toolbar({ onNewCard, onNewNote, onSwitchWorkspace, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace }: Props) {
   const cwd = useStore((s) => s.cwd)
+  const [home, setHome] = useState('')
+  useEffect(() => {
+    window.canvas.app.info().then((i) => setHome(i.home)).catch(() => {})
+  }, [])
   const workspace = useStore((s) => s.workspace)
   const workspaces = useStore((s) => s.workspaces)
   const count = useStore((s) => s.nodes.filter((n) => n.type === 'terminal').length)
@@ -94,7 +111,7 @@ export default function Toolbar({ onNewCard, onNewNote, onSwitchWorkspace, onCre
       <UsageMeter />
 
       <button className="ghost cwd-btn" onClick={pickDir} title="Pasta usada pelos novos cards">
-        📁 {cwd.replace(/^\/home\/[^/]+/, '~')}
+        📁 {shortenHome(cwd, home)}
       </button>
 
       <div className="group">

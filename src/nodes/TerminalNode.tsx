@@ -39,7 +39,8 @@ const fontReady = Promise.all([
   document.fonts.load('700 13px CanvasTerm')
 ]).catch(() => undefined)
 
-const basename = (p: string) => p.split('/').filter(Boolean).pop() ?? '/'
+const isWinPath = (p: string) => /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\')
+const basename = (p: string) => (isWinPath(p) ? p.split(/[\\/]/) : p.split('/')).filter(Boolean).pop() ?? (isWinPath(p) ? p : '/')
 
 function TerminalNode({ id, data, selected, positionAbsoluteX, positionAbsoluteY, width, height }: NodeProps<CardNode>) {
   const hostRef = useRef<HTMLDivElement>(null)

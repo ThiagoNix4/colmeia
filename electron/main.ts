@@ -88,6 +88,26 @@ function stageAppImage(bin: string, cli: string, docs: string) {
   fs.cpSync(docs, path.join(tmp, 'docs'), { recursive: true })
   fs.rmSync(dest, { recursive: true, force: true }) // cópia parcial antiga
   fs.renameSync(tmp, dest)
+  if (process.platform === 'win32') {
+    // melhor esforço: remove cópias de versões antigas; os *.tmp-<pid> (outra instância copiando) ficam
+    try {
+      for (const name of fs.readdirSync(base)) {
+        if (name === tag || name.includes('.tmp-')) continue
+        const old = path.join(base, name)
+        try {
+          // daemon antigo ainda rodando ("Manter daemon atual"): o .exe em uso não abre para escrita.
+          // Pula a pasta inteira, senão cli/ e docs/ dos cards vivos seriam apagados antes da falha.
+          const exe = path.join(old, 'colmeiad' + EXE)
+          if (fs.existsSync(exe)) fs.closeSync(fs.openSync(exe, 'r+'))
+          fs.rmSync(old, { recursive: true, force: true })
+        } catch {
+          /* em uso */
+        }
+      }
+    } catch {
+      /* ignora */
+    }
+  }
   return out
 }
 

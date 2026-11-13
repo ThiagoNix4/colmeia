@@ -107,7 +107,7 @@ func SafeName(n string) string {
 	if s == "" {
 		return "default"
 	}
-	return s
+	return ReserveDevice(s)
 }
 
 func parseWs(file string) Workspace {
@@ -692,4 +692,18 @@ func winPromptArg(bin string) string {
 		`if ($c -and $c.Source -match '\.(cmd|bat)$') { 'Your operating instructions are in the file ' + ` + f + ` + '. Read it first and follow it as your system prompt.' } ` +
 		`elseif ($PSVersionTable.PSVersion -lt [version]'7.3') { $t = [regex]::Replace($t, '(\\*)"', '$1$1\"'); [regex]::Replace($t, '(\\+)\z', '$1$1') } ` +
 		`else { $t } })`
+}
+
+// ReserveDevice: no Windows, nomes de dispositivo (CON, NUL, COM1…) viram "<nome>_" (base antes do ponto).
+func ReserveDevice(s string) string {
+	if runtime.GOOS != "windows" {
+		return s
+	}
+	base := strings.ToUpper(strings.SplitN(s, ".", 2)[0])
+	switch base {
+	case "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		return "_" + s
+	}
+	return s
 }

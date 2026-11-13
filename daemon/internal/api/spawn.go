@@ -96,7 +96,7 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 	}
 	args := shellArgs // unix: -l; windows: -NoLogo
 	if preset != nil && preset.Command != "" {
-		cmd := withClaudeSettings(strings.ReplaceAll(preset.Command, "{docs}", s.cfg.DocsDir), writeClaudeSettings(s.cfg.CliDir))
+		cmd := withClaudeSettings(strings.ReplaceAll(preset.Command, "{docs}", docsArg(s.cfg.DocsDir)), writeClaudeSettings(s.cfg.CliDir))
 		if runtime.GOOS == "windows" {
 			// PowerShell: -NoExit mantém o shell após o comando
 			args = []string{"-NoLogo"}
@@ -129,6 +129,19 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 		}
 	}
 	env[pathKey] = s.cfg.CliDir + string(os.PathListSeparator) + env[pathKey]
+	if runtime.GOOS == "windows" {
+		// CLIs instaladas pelo npm (opencode, codex, gemini…) são shims .ps1, que o PowerShell recusa com a
+		// política padrão (Restricted). Escopo Process = só os processos do card; respeita o que já vier definido.
+		hasPolicy := false
+		for k := range env {
+			if strings.EqualFold(k, "PSExecutionPolicyPreference") {
+				hasPolicy = true
+			}
+		}
+		if !hasPolicy {
+			env["PSExecutionPolicyPreference"] = "RemoteSigned"
+		}
+	}
 	cols, rows := in.Cols, in.Rows
 	if cols == 0 {
 		cols = 100
@@ -138,4 +151,12 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 	}
 	cols, rows = max(20, cols), max(5, rows)
 	return term.SpawnReq{ID: in.ID, Preset: in.Preset, Title: in.Title, Cwd: cwd, Command: shell, Args: args, Env: env, Cols: cols, Rows: rows}
+}
+
+// docsArg: no Windows (PowerShell) ' vira '' dentro de aspas simples.
+func docsArg(d string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ReplaceAll(d, "'", "''")
+	}
+	return d
 }

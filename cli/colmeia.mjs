@@ -100,6 +100,7 @@ async function readText(parts) {
   if (parts.length === 1 && parts[0] === '-') {
     let s = ''
     for await (const c of process.stdin) s += c
+    if (process.platform === 'win32') s = s.replace(/\r\n/g, '\n')
     return s.replace(/\n$/, '')
   }
   return parts.join(' ')

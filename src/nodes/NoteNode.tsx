@@ -219,7 +219,7 @@ function NoteNode({ id, data, selected }: NodeProps<NoteNodeModel>) {
         )}
         <span className="spacer" />
         <code className="card-id" title={data.file}>
-          {data.file.split('/').pop()}
+          {(/^[A-Za-z]:[\\/]/.test(data.file) || data.file.startsWith('\\') ? data.file.split(/[\\/]/) : data.file.split('/')).pop()}
         </code>
         <button className="icon nodrag" title={copied ? 'Caminho copiado' : 'Copiar caminho do .md'} onClick={copyPath}>
           {copied ? '✓' : '⧉'}
