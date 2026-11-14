@@ -283,6 +283,14 @@ func (s *Server) handleUI(cmd string, a Args) (any, error) {
 		return Args{"mtime": m}, nil
 	case "notes.root":
 		return notes.Root(), nil
+	case "ws.policy":
+		name, _ := a["name"].(string)
+		if v, ok := a["set"].(string); ok {
+			if err := store.SetPolicy(name, v); err != nil {
+				return nil, err
+			}
+		}
+		return store.GetPolicy(name), nil
 	case "usage.get":
 		return usage.GetReport(), nil
 	case "usage.setSettings":

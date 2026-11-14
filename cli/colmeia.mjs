@@ -3,6 +3,8 @@
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { execFile } from 'node:child_process'
+import fs from 'node:fs'
 
 const SOCK =
   process.env.COLMEIA_SOCK ||
@@ -42,6 +44,8 @@ const HELP = `colmeia — controla o Colmeia
   colmeia sessions                              lista os cards e se têm sessão persistente (daemon)
   colmeia detach <id>                           tira o card da tela mantendo a sessão viva (não é kill)
   colmeia screenshot [arquivo.png]              captura a janela do canvas
+  colmeia agents                                inventário de agentes/modelos no PC + policy
+  colmeia policy [free|ask|all]                 mostra/define a política de modelos do workspace
   colmeia whoami                                id do card atual
 ${NOTE_HELP}
 
@@ -144,6 +148,89 @@ function printResult(text) {
   console.log(all.slice(-15).join('\n'))
 }
 
+// Inventário de agentes (colmeia agents)
+const AGENT_BINS = ['claude', 'opencode', 'codex', 'gemini', 'qwen', 'aider', 'cursor-agent', 'ollama', 'crush', 'goose']
+// lazy: os.userInfo() lança sem entrada no passwd
+function cacheFile() {
+  let u
+  try { u = os.userInfo().username } catch { u = process.env.USER || process.env.USERNAME || 'u' }
+  return path.join(os.tmpdir(), `colmeia-agents-${u}.json`)
+}
+
+function costOf(tool, model) {
+  const m = `${tool} ${model}`.toLowerCase()
+  if (/[-:]free\b/.test(m)) return 'free'
+  if (tool === 'ollama' || /\b(local|lmstudio|llama\.cpp)\b/.test(m)) return 'local'
+  if (/anthropic|openai|google|claude|codex|gemini|gpt|opus|sonnet|\bo[134]\b/.test(m)) return 'paid'
+  return '?'
+}
+
+function run(bin, args, timeout = 10000) {
+  // Windows: shim .cmd/.bat só roda via shell
+  const file = whichBin(bin) || bin
+  const shell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)
+  const cmd = shell ? `"${file}"` : file
+  return new Promise((resolve) => execFile(cmd, args, { timeout, windowsHide: true, shell }, (e, out) => resolve(e ? '' : String(out))))
+}
+
+function whichBin(bin) {
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : ['']
+  for (const d of (process.env.PATH || '').split(path.delimiter))
+    for (const x of exts) if (d && fs.existsSync(path.join(d, bin + x))) return path.join(d, bin + x)
+  return ''
+}
+
+const onPath = (bin) => !!whichBin(bin)
+
+async function cached(key, ttlMs, fn) {
+  const CACHE = cacheFile()
+  let c = {}
+  try { c = JSON.parse(fs.readFileSync(CACHE, 'utf8')) } catch {}
+  if (c[key] && Date.now() - c[key].t < ttlMs) return c[key].v
+  const v = await fn()
+  if (!v) return v // não guarda falha/vazio
+  c[key] = { t: Date.now(), v }
+  try { fs.writeFileSync(CACHE + '.tmp', JSON.stringify(c)); fs.renameSync(CACHE + '.tmp', CACHE) } catch {}
+  return v
+}
+
+async function agents() {
+  const rows = []
+  const seen = new Map()
+  const add = (tool, model, preset = '-') => {
+    const k = `${tool}|${model || '-'}`
+    const r = seen.get(k)
+    if (r) { if (r[3] === '-') r[3] = preset; return }
+    const row = [tool, model || '-', costOf(tool, model || ''), preset]
+    seen.set(k, row)
+    rows.push(row)
+  }
+  const presets = await call('presets').catch(() => [])
+  const used = new Set()
+  for (const p of presets) {
+    const bin = (p.command || '').trim().split(/\s+/)[0] || 'shell'
+    const model = (p.command || '').match(/(?:--model|-m)\s+(\S+)/)?.[1]
+    used.add(bin)
+    add(bin, model, p.id)
+  }
+  const present = AGENT_BINS.filter(onPath)
+  for (const b of present) if (![...seen.keys()].some((k) => k.startsWith(b + '|'))) add(b, '', '-')
+  if (present.includes('opencode')) {
+    const out = await cached('opencode', 600000, () => run('opencode', ['models'], 10000))
+    for (const l of out.split('\n').map((x) => x.trim()).filter(Boolean)) add('opencode', l)
+  }
+  if (present.includes('ollama')) {
+    const out = await cached('ollama', 600000, () => run('ollama', ['list'], 5000))
+    for (const l of out.split('\n').slice(1)) {
+      const n = l.trim().split(/\s+/)[0]
+      if (n) add('ollama', n)
+    }
+  }
+  const w = [0, 1, 2].map((i) => Math.max(...rows.map((r) => r[i].length)))
+  for (const r of rows) console.log(`${r[0].padEnd(w[0])}  ${r[1].padEnd(w[1])}  ${r[2].padEnd(w[2])}  ${r[3]}`)
+  console.log(`policy: ${await call('policy').catch(() => 'ask (default)')}`)
+}
+
 const secs = (v, d) => Math.round((v === undefined || v === true ? d : Number(v)) * 1000)
 
 async function main() {
@@ -168,6 +255,12 @@ async function main() {
           `${c.id}  ${(c.title + (c.id === self ? ' (você)' : '')).padEnd(26)} ${c.preset.padEnd(18)} ${c.alive ? 'ativo' : 'saiu ' + c.exitCode}  ${c.cwd}${c.linked ? '  [ligado]' : ''}`
         )
       return
+    }
+    case 'agents':
+      return agents()
+    case 'policy': {
+      if (pos[0] && !['free', 'ask', 'all'].includes(pos[0])) throw new Error('uso: colmeia policy [free|ask|all]')
+      return console.log(await call('policy', pos[0] ? { set: pos[0] } : {}))
     }
     case 'presets':
       // compacto: id, nome e modelo (o comando completo traz o prompt inteiro e só gasta token)

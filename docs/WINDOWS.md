@@ -64,6 +64,11 @@ Se `npm run dev` disser `Electron uninstall`, rode `node node_modules\electron\i
 
 Testes: `go vet ./...` e `go build ./...` em `daemon\` (Windows e `set GOOS=linux`); `go test ./...` (passa no Windows e no Linux; no Windows os testes de `internal/term` rodam o PowerShell via ConPTY e os de `internal/api` usam named pipe); `npx tsc --noEmit`.
 
+## Versão 0.1.1
+
+- Gerente escolhe entre todos os agentes do PC (`colmeia agents`).
+- Policy por workspace free/ask/all (`colmeia policy` + seletor Modelos na barra).
+
 ## Correções da versão Windows beta 4 (v0.1.0-win.4)
 
 - Roda do mouse não rolava cards com TUI (opencode etc.) no Windows 10: o ConPTY embutido no sistema descarta os pedidos de mouse e de tela alternativa do app. O Colmeia agora traz o ConPTY moderno da Microsoft (`conpty.dll` + `OpenConsole.exe`, pacote NuGet `Microsoft.Windows.Console.ConPTY`, MIT; ver `THIRD-PARTY-NOTICES.md`) ao lado do `colmeiad.exe` e o usa quando presente (`daemon/internal/term/conpty_modern_windows.go`). Qualquer falha cai no ConPTY do sistema; `COLMEIA_CONPTY=inbox` força o do sistema.

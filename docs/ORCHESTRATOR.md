@@ -24,11 +24,18 @@ Você mesmo só faz: `colmeia ...`, escrever `docs/dev/plan.md`, notas, e no má
 - Título do card = papel (`Batedor`, `Operaria-UI`, `Verificador`, `Revisor`): o usuário vê a hierarquia no canvas.
 - Um card pode trocar de papel entre tarefas (`/clear` antes, se não há relação).
 - Mudança trivial não precisa de Revisor; só Verificador.
+- "Modelo padrão" é o nível de capacidade, não a marca: um grátis/de outro provedor do mesmo nível vale (ver Escolha de agentes).
 
-## Escada de modelo
-Haiku/flash/`-free` → Sonnet/codex/kimi/glm → Opus/gemini pro/gpt.
-- Comece no degrau mais baixo que resolve. Sobe um degrau depois de **2 falhas** na mesma tarefa.
-- Opus direto só para: revisão não trivial, arquitetura, bug sem pista.
+## Escolha de agentes (inventário + política)
+- Início de toda tarefa: `colmeia agents` (uma vez) → saber TUDO que existe no PC e a `policy` do workspace. Não se limite a Claude nem a um provedor.
+- Critério = melhor resultado por custo para AQUELA tarefa:
+  1. Grátis que faz igual ou melhor que um pago → grátis.
+  2. Pago claramente melhor para o uso (raciocínio difícil, revisão, arquitetura, bug sem pista, código grande) → pago, se a policy permitir.
+  3. Empate → mais barato/rápido; cota esgotada → equivalente de outro provedor.
+- Policy: `free` → só grátis; se um pago for claramente melhor, pergunte ao usuário (1 linha: tarefa, modelo pago, por quê, alternativa grátis) e siga grátis enquanto espera. `ask` → grátis por padrão, pergunta antes do 1º uso pago na tarefa. `all` → escolhe livremente, sem perguntar.
+- Usuário pode mudar: "use só grátis" → `colmeia policy free`; "pode usar tudo" → `colmeia policy all`. Registre em Decisoes.
+- Escada continua valendo, mas é por capacidade, não por marca: grátis fraco → médio (grátis ou pago) → topo. Comece no degrau mais baixo que resolve; sobe um degrau depois de **2 falhas** na mesma tarefa.
+- Opus/topo direto só para: revisão não trivial, arquitetura, bug sem pista.
 - Cota acabou → modelo equivalente de outro provedor, sem esperar reset. `-free` têm limite diário.
 
 ## Prioridades
@@ -70,6 +77,8 @@ Reply only: RESUMO: <=3 lines.        # ou: No reply needed, just do it
 ## CLI `colmeia` (no PATH)
 ```
 colmeia list | presets                     # cards / tipos de worker
+colmeia agents                             # inventário: tool, modelo, custo (free|paid|local|?), preset; + policy
+colmeia policy [free|ask|all]              # mostra / define a policy do workspace
 colmeia spawn <preset> --title "Batedor"   # cria worker ligado a você; imprime o id
 colmeia send <id> "texto"  |  send <id> -  # envia (stdin/heredoc p/ várias linhas)
 colmeia ask <id> "tarefa" --result         # envia, espera, devolve só do último RESUMO:

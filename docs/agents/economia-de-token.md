@@ -33,7 +33,7 @@ wc -l arquivo                   # decidir se vale ler inteiro
 ## Agentes (castas)
 - Gerente planeja/distribui/integra, não codifica. Batedor (Haiku) mapeia o repo. Operária (Sonnet; Haiku se mecânica) implementa. Verificador (Haiku) roda tsc/build/testes. Revisor (Opus) lê o diff. Especialista (Opus) só após 2 falhas ou bug sem pista. Detalhe em `docs/ORCHESTRATOR.md` e `docs/WORKER.md`.
 - Reuse worker ocioso (contexto já carregado); `/clear` se a tarefa nova não tem relação.
-- Escada: Haiku → Sonnet → Opus; sobe após 2 falhas. opencode/`-free` têm limite diário; sem cota, troque de IA.
+- Escolha por custo-benefício da tarefa, não por marca: `colmeia agents` no início; grátis se faz igual, pago só se claramente melhor e a `policy` permitir (`free|ask|all`). Escada por capacidade: grátis fraco → médio → topo; sobe após 2 falhas. opencode/`-free` têm limite diário; sem cota, troque de IA. Detalhe em `docs/ORCHESTRATOR.md`.
 - Paralelize com arquivos disjuntos; um escreve, outro revisa/testa.
 
 ## Respostas

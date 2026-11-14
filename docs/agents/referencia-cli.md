@@ -27,6 +27,10 @@ Requer o app aberto (fala por socket Unix: `$XDG_RUNTIME_DIR/colmeia.sock`; over
 ## Presets
 `{docs}` num comando é trocado pela pasta `docs/` do app. Presets em `~/.config/colmeia/presets.json` (lidos ao abrir o app); só `shell` e `claude-manager` são embutidos, o resto vem do menu **Agentes**.
 
+## Agentes e policy
+- `agents`: inventário de TODOS os agentes do PC (CLIs no PATH, presets, `opencode models`, `ollama list`). 1 linha por agente/modelo: `tool  model  custo(free|paid|local|?)  preset-id|-`; termina com `policy: <x>`.
+- `policy`: mostra a policy do workspace do card chamador; `policy free|ask|all` define (`free` só grátis; `ask` pergunta antes do 1º pago; `all` livre).
+
 ## ask x send+wait
 - Pontual: `ask --result` (uma chamada).
 - Longo ou com permissões: `send` + `wait`, depois `result`; responda menus com `key`/`send`.

@@ -287,6 +287,13 @@ func (s *Server) handleCLI(from, cmd string, a Args) (any, error) {
 	switch cmd {
 	case "ping":
 		return Args{"pong": "pong", "version": s.cfg.Version, "cliDir": s.cfg.CliDir, "docsDir": s.cfg.DocsDir}, nil
+	case "policy":
+		if v, ok := a["set"].(string); ok {
+			if err := store.SetPolicy(ws, v); err != nil {
+				return nil, err
+			}
+		}
+		return store.GetPolicy(ws), nil
 	case "presets":
 		s.mu.Lock()
 		defer s.mu.Unlock()

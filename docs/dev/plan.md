@@ -1,84 +1,33 @@
-# PLAN — Gerenciar workspaces + remover preset DeepSeek
+# Plan: escolha de agentes pelo Gerente (política de custo por workspace) → release 0.1.1
 
-Projeto: `colmeia/` (raiz do repo) (Electron + React + xyflow + node-pty)
+## Contrato (P0)
+Workspace policy `models` ∈ `free` | `ask` | `all` (default `ask`). Stored with workspace state (same place as other per-workspace data).
+- free: só agentes grátis (opencode `-free`, modelos locais, free tiers). Se pago for claramente melhor numa tarefa → Gerente PERGUNTA ao usuário.
+- ask: grátis por padrão; pago quando melhor, mas pergunta antes do 1º uso pago na tarefa.
+- all: acesso total; Gerente escolhe livre pelo melhor custo/benefício.
 
-## Objetivos
-1. **Remover o preset `opencode-deepseek`** de todo o app (default, config já persistida, docs).
-   Manter `shell`, `claude`, `claude-manager`, `opencode`.
-2. **Workspaces: além de criar, poder RENOMEAR e EXCLUIR.**
-   Hoje a Toolbar só tem um `<select>` + botão `＋`.
+## §1 Operária-Code (Sonnet) — P1
+Files: cli/colmeia.mjs, daemon/ (only what's needed for policy get/set + store), src/ workspace menu component(s) for toggle.
+- `colmeia agents`: inventário de TODOS agentes no PC: CLIs no PATH (claude, opencode, codex, gemini, qwen, aider, cursor-agent, ollama, crush, goose…), presets do menu Agentes, `opencode models` (timeout 10s, cache), `ollama list`. Saída compacta 1 linha por agente/modelo: `tool  model  custo(free|paid|local|?)  preset-id|-`. Termina com `policy: <x>`.
+  Custo: `-free`/`:free` sufixo, ollama/local → free/local; claude/codex/gemini/gpt/opus/sonnet → paid; resto `?`.
+- `colmeia policy` mostra; `colmeia policy free|ask|all` define (workspace do card chamador).
+- UI: no menu/config do workspace, seletor "Modelos: Só grátis / Perguntar antes de pago / Acesso total".
+Done: tsc ✓, go test ✓, `colmeia agents` e `colmeia policy` funcionam.
 
----
+## §2 Operária-Docs (Haiku) — P1
+Files: docs/ORCHESTRATOR.md, docs/agents/*.md if they reference model choice, README (CLI list).
+Insert section "Escolha de agentes (inventário + política)" (text in §2a) replacing/extending "Escada de modelo"; add `colmeia agents`/`colmeia policy` in CLI block.
 
-## Contrato de API (congelado — ambos os lados programam contra isto)
+### §2a texto
+- Início de toda tarefa: `colmeia agents` (uma vez) → saber TUDO que existe no PC e a `policy` do workspace. Não se limite a Claude nem a um provedor.
+- Critério = melhor resultado por custo para AQUELA tarefa:
+  1. Grátis que faz igual ou melhor que um pago → grátis.
+  2. Pago claramente melhor para o uso (raciocínio difícil, revisão, arquitetura, bug sem pista, código grande) → pago, se a policy permitir.
+  3. Empate → mais barato/rápido; cota esgotada → equivalente de outro provedor.
+- Policy: `free` → só grátis; se um pago for claramente melhor, pergunte ao usuário (1 linha: tarefa, modelo pago, por quê, alternativa grátis) e siga grátis enquanto espera. `ask` → grátis por padrão, pergunta antes do 1º uso pago na tarefa. `all` → escolhe livremente, sem perguntar.
+- Usuário pode mudar: "use só grátis" → `colmeia policy free`; "pode usar tudo" → `colmeia policy all`. Registre em Decisoes.
+- Escada continua valendo, mas é por capacidade, não por marca: grátis fraco → médio (grátis ou pago) → topo.
 
-### `electron/store.ts`
-```ts
-export function deleteWorkspace(name: string): void
-// remove <config>/colmeia/workspaces/<safeName>.json; no-op se não existir.
-
-export function renameWorkspace(from: string, to: string): string
-// renomeia o arquivo e devolve o novo nome sanitizado.
-// lança Error('workspace não encontrado') se `from` não existe
-// lança Error('já existe um workspace com esse nome') se o destino existe
-// se `from` era o último aberto (state.json), atualiza state.last para o novo nome
-```
-
-### IPC (`electron/main.ts`)
-```ts
-ipcMain.handle('ws:delete', (_e, name: string) => store.deleteWorkspace(name))
-ipcMain.handle('ws:rename', (_e, from: string, to: string) => store.renameWorkspace(from, to))
-```
-
-### `electron/preload.ts` — dentro de `api.ws`
-```ts
-remove: (name: string): Promise<void> => ipcRenderer.invoke('ws:delete', name),
-rename: (from: string, to: string): Promise<string> => ipcRenderer.invoke('ws:rename', from, to)
-```
-
-### Props do `Toolbar` (`src/components/Toolbar.tsx`)
-```ts
-interface Props {
-  onNewCard: (presetId: string) => void
-  onSwitchWorkspace: (name: string) => void
-  onCreateWorkspace: (name: string) => void              // cria e já troca para ela
-  onRenameWorkspace: (from: string, to: string) => Promise<void>
-  onDeleteWorkspace: (name: string) => Promise<void>
-}
-```
-`App.tsx` implementa esses 3 novos handlers (feito pelo Gerente).
-
----
-
-## Divisão de tarefas — NINGUÉM edita arquivo de outro
-
-### Worker BACKEND  →  `electron/store.ts`, `electron/main.ts`, `electron/preload.ts`
-- `DEFAULT_PRESETS`: apagar a linha do `opencode-deepseek`.
-- Migração em `loadPresets()`: const `REMOVED_PRESET_IDS = ['opencode-deepseek']`.
-  Filtrar esses ids da lista lida do disco; se algo foi removido, reescrever o `presets.json`
-  (preserva as outras customizações do usuário).
-- Migração em `loadWorkspace()`: card com `preset === 'opencode-deepseek'` passa a `'opencode'`.
-- `deleteWorkspace` e `renameWorkspace` conforme o contrato.
-- Registrar os 2 handlers IPC em `main.ts` e os 2 métodos em `preload.ts`.
-
-### Worker FRONTEND  →  `src/components/Toolbar.tsx`, `src/styles.css`
-- Trocar o bloco de workspace por um controle com 3 ações, usando as props novas:
-  `＋` novo · `✎` renomear o atual · `🗑` excluir o atual.
-- Renomear: vira um `<input>` inline pré-preenchido com o nome atual (Enter confirma, Esc cancela),
-  igual ao fluxo de criar que já existe.
-- Excluir: `window.confirm('Excluir o workspace "X"? Os cards salvos nele serão perdidos.')`.
-  O botão 🗑 fica `disabled` quando `workspaces.length <= 1`.
-- Sanitizar nomes com `.replace(/[^\w.-]+/g, '_')` e ignorar vazio, como já é feito hoje.
-- CSS: estilo dos botões de ação (`.ws-actions button`), hover, e um vermelho discreto no 🗑.
-- NÃO editar `App.tsx` nem `src/store.ts`.
-
-### Gerente (eu)  →  `src/App.tsx`, `src/store.ts`, `README.md`, `docs/ORCHESTRATOR.md`
-- Handlers `onCreateWorkspace` / `onRenameWorkspace` / `onDeleteWorkspace` em `App.tsx`,
-  recarregando a lista de workspaces no store depois de cada operação.
-- Excluir o workspace atual → trocar para o primeiro restante (ou criar `default` vazio).
-- Docs: tirar DeepSeek, documentar renomear/excluir.
-- Build (`npm run build`) e revisão final.
-
-## Pronto quando
-`npm run build` passa sem erro de TypeScript, nenhuma menção a deepseek fora de `.tasks/*.log`,
-e a Toolbar permite criar, renomear e excluir workspace.
+## §3 Verificador (Haiku): tsc, go vet/test, npm run build.
+## §4 Revisor (Opus): git diff do §1.
+## §5 Release 0.1.1 (Gerente+Verificador): bump package.json → 0.1.1, `npm run dist` (AppImage+deb) e `npm run dist:win` (wine), docs/WINDOWS.md notas, commit+push, `gh release create v0.1.1` com 4 assets.

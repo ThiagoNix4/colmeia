@@ -43,7 +43,8 @@ const api = {
     load: (name?: string): Promise<Workspace> => ipcRenderer.invoke('ws:load', name),
     save: (ws: Workspace) => ipcRenderer.send('ws:save', ws),
     remove: (name: string): Promise<void> => ipcRenderer.invoke('ws:delete', name),
-    rename: (from: string, to: string): Promise<string> => ipcRenderer.invoke('ws:rename', from, to)
+    rename: (from: string, to: string): Promise<string> => ipcRenderer.invoke('ws:rename', from, to),
+    policy: (name: string, set?: string): Promise<string> => ipcRenderer.invoke('ws:policy', name, set)
   },
   links: {
     set: (edges: LinkEdge[]) => ipcRenderer.send('links:set', edges)

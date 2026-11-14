@@ -9,16 +9,19 @@ Feito para Linux (testado no Arch, Wayland/GNOME), com versão beta para Windows
 - Go 1.22+ (compila o daemon `colmeiad`)
 - Opcional: `claude` (Claude Code) e `opencode` no PATH
 
+## Novidades da 0.1.1
+- Gerente escolhe entre todos os agentes do PC (`colmeia agents`), policy por workspace free/ask/all (`colmeia policy` + seletor Modelos na barra).
+
 ## Download (Releases)
 Baixe na página **Releases** do GitHub. O código é o mesmo para Linux e Windows; só muda o pacote.
 
 **Linux x64**
-- **AppImage:** `chmod +x Colmeia-0.1.0.AppImage && ./Colmeia-0.1.0.AppImage`
-- **Debian/Ubuntu:** `sudo apt install ./colmeia_0.1.0_amd64.deb`
+- **AppImage:** `chmod +x Colmeia-0.1.1.AppImage && ./Colmeia-0.1.1.AppImage`
+- **Debian/Ubuntu:** `sudo apt install ./colmeia_0.1.1_amd64.deb`
 
 **Windows 10/11 x64 (beta)**
-- **Instalador:** baixe `Colmeia-Setup-0.1.0-win.3.exe`, execute e abra **Colmeia** pelo menu Iniciar.
-- **Portátil:** baixe `Colmeia-0.1.0-win.3-portable.exe` e abra com duplo clique (não precisa instalar).
+- **Instalador:** baixe `Colmeia-Setup-0.1.1.exe`, execute e abra **Colmeia** pelo menu Iniciar.
+- **Portátil:** baixe `Colmeia-0.1.1-portable.exe` e abra com duplo clique (não precisa instalar).
 - O SmartScreen pode avisar "editor desconhecido" (o app não é assinado): clique em **Mais informações → Executar assim mesmo**.
 - **Não precisa instalar nada além do app** para os cards de terminal. A CLI `colmeia` e a linha de status do Claude usam o Node.js se estiver no PATH; senão usam o próprio `Colmeia.exe` como Node.
 - Para os cards de agente (Gerente, Apis…): instale o [Claude Code](https://docs.claude.com/claude-code) (`irm https://claude.ai/install.ps1 | iex` no PowerShell) e faça login uma vez com `claude`. Ele exige o [Git for Windows](https://git-scm.com/download/win).
@@ -61,6 +64,8 @@ Funciona dentro de qualquer card (já está no PATH deles) e em qualquer termina
 ```
 colmeia list                                  lista os cards
 colmeia presets                               lista os presets disponíveis
+colmeia agents                                inventário de agentes do PC (tool, modelo, custo) + policy
+colmeia policy [free|ask|all]                 mostra / define a policy de modelos do workspace
 colmeia spawn <preset> [--title T] [--cwd D] [--near ID]
                                              cria um card (imprime o id)
 colmeia send <id> <texto...> [--no-enter]     escreve no card e aperta Enter

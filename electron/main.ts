@@ -390,6 +390,7 @@ function daemonMain() {
   ipcMain.on('ws:save', (_e, ws: Workspace) => fire('ws.save', { ws }))
   ipcMain.handle('ws:delete', (_e, name: string) => call('ws.delete', { name }))
   ipcMain.handle('ws:rename', (_e, from: string, to: string) => call('ws.rename', { from, to }))
+  ipcMain.handle('ws:policy', (_e, name: string, set?: string) => call('ws.policy', { name, set }))
   ipcMain.on('links:set', (_e, edges: LinkEdge[]) => fire('links.set', { edges }))
   ipcMain.handle('notes:list', (_e, ws: string) => call('notes.list', { ws }))
   ipcMain.handle('notes:create', (_e, ws: string, title: string) => call('notes.create', { ws, title }))

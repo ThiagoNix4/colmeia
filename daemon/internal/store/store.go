@@ -411,6 +411,14 @@ func SaveWorkspace(ws Workspace) error {
 		out[k] = v
 	}
 	out["name"] = n
+	// política de modelos não vem do renderer: preserva a do disco
+	if _, ok := out["models"]; !ok {
+		if prev := readDisk(file); prev != nil {
+			if m, ok := prev["models"]; ok {
+				out["models"] = m
+			}
+		}
+	}
 	b, _ := json.MarshalIndent(out, "", "  ")
 	if err := writeDurable(file, b); err != nil {
 		return err
@@ -706,4 +714,30 @@ func ReserveDevice(s string) string {
 		return "_" + s
 	}
 	return s
+}
+
+// Política de modelos do workspace: free | ask | all (padrão ask).
+func NormPolicy(v string) string {
+	switch v {
+	case "free", "ask", "all":
+		return v
+	}
+	return ""
+}
+
+func GetPolicy(name string) string {
+	mu.Lock()
+	defer mu.Unlock()
+	ws := readDisk(filepath.Join(wsDir(), SafeName(name)+".json"))
+	if p := NormPolicy(asStr(ws["models"])); p != "" {
+		return p
+	}
+	return "ask"
+}
+
+func SetPolicy(name, v string) error {
+	if NormPolicy(v) == "" {
+		return errors.New("política inválida: use free, ask ou all")
+	}
+	return Mutate(name, func(ws Workspace) { ws["models"] = v })
 }

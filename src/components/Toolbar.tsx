@@ -39,6 +39,20 @@ export default function Toolbar({ onNewCard, onNewNote, onSwitchWorkspace, onCre
   const count = useStore((s) => s.nodes.filter((n) => n.type === 'terminal').length)
   const [mode, setMode] = useState<'idle' | 'create' | 'rename'>('idle')
   const settled = useRef(false)
+  const [policy, setPolicy] = useState('ask')
+  useEffect(() => {
+    let alive = true
+    window.canvas.ws.policy(workspace).then((p) => alive && setPolicy(p)).catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [workspace])
+  const changePolicy = (v: string) => {
+    setPolicy(v)
+    const ws = workspace
+    // ignora resposta se o workspace mudou no meio
+    window.canvas.ws.policy(ws, v).then((p) => useStore.getState().workspace === ws && setPolicy(p)).catch(() => {})
+  }
 
   const openMode = (next: 'create' | 'rename') => {
     settled.current = false
@@ -149,6 +163,13 @@ export default function Toolbar({ onNewCard, onNewNote, onSwitchWorkspace, onCre
             {workspaces.map((w) => (
               <option key={w}>{w}</option>
             ))}
+          </select>
+        )}
+        {mode === 'idle' && (
+          <select className="ws-select" title="Modelos que o Gerente pode usar neste workspace" value={policy} onChange={(e) => changePolicy(e.target.value)}>
+            <option value="free">Modelos: Só grátis</option>
+            <option value="ask">Modelos: Perguntar antes de pago</option>
+            <option value="all">Modelos: Acesso total</option>
           </select>
         )}
         {mode === 'idle' && (
