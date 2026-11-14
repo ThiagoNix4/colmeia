@@ -71,9 +71,14 @@ function stageAppImage(bin: string, cli: string, docs: string) {
   const base = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local/share'), 'colmeia')
   // win32: o instalador sobrescreve o app com a mesma versão; sem o hash do binário a pasta antiga
   // (com o colmeiad velho) seria reaproveitada para sempre. Pasta nova → daemon novo é detectado.
+  // win32: ConPTY moderno (conpty.dll + OpenConsole.exe) fica ao lado do colmeiad.exe; entra no hash.
+  const conpty =
+    process.platform === 'win32'
+      ? ['conpty.dll', 'OpenConsole.exe'].map((n) => path.join(path.dirname(bin), n)).filter((f) => fs.existsSync(f))
+      : []
   const tag =
     process.platform === 'win32'
-      ? `${app.getVersion()}-${createHash('sha256').update(fs.readFileSync(bin)).digest('hex').slice(0, 8)}`
+      ? `${app.getVersion()}-${conpty.reduce((h, f) => h.update(fs.readFileSync(f)), createHash('sha256').update(fs.readFileSync(bin))).digest('hex').slice(0, 8)}`
       : app.getVersion()
   const dest = path.join(base, tag)
   const out = { bin: path.join(dest, 'colmeiad' + EXE), cli: path.join(dest, 'cli'), docs: path.join(dest, 'docs') }
@@ -84,6 +89,7 @@ function stageAppImage(bin: string, cli: string, docs: string) {
   fs.mkdirSync(tmp, { recursive: true })
   fs.copyFileSync(bin, path.join(tmp, 'colmeiad' + EXE))
   if (!EXE) fs.chmodSync(path.join(tmp, 'colmeiad'), 0o755)
+  for (const f of conpty) fs.copyFileSync(f, path.join(tmp, path.basename(f)))
   fs.cpSync(cli, path.join(tmp, 'cli'), { recursive: true })
   fs.cpSync(docs, path.join(tmp, 'docs'), { recursive: true })
   fs.rmSync(dest, { recursive: true, force: true }) // cópia parcial antiga

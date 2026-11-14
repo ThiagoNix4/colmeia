@@ -29,17 +29,23 @@
       "assets/**",
       "out/**",
       "cli/**",
-      "docs/**"
+      "docs/**",
+      "THIRD-PARTY-NOTICES.md"
     ],
     "asarUnpack": [
       "out/colmeiad",
       "out/colmeiad.exe",
+      "out/conpty.dll",
+      "out/OpenConsole.exe",
       "cli/**",
       "docs/**"
     ],
     "linux": {
       "files": [
-        "!out/colmeiad.exe"
+        "!out/colmeiad.exe",
+        "!out/conpty.dll",
+        "!out/OpenConsole.exe",
+        "!out/conpty.version"
       ],
       "target": [
         "AppImage",

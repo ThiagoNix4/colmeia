@@ -9,3 +9,6 @@ execFileSync('go', ['build', '-trimpath', '-o', path.join(root, 'out', 'colmeiad
   stdio: 'inherit',
   env: { ...process.env, GOOS: 'windows', GOARCH: 'amd64', CGO_ENABLED: '0' }
 })
+
+// ConPTY moderno (conpty.dll + OpenConsole.exe) ao lado do colmeiad.exe
+execFileSync(process.execPath, [path.join(root, 'scripts', 'fetch-conpty-win.mjs')], { stdio: 'inherit' })

@@ -4,6 +4,7 @@ package term
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,7 +28,23 @@ func DefaultShell() (string, []string) {
 	return "powershell.exe", []string{"-NoLogo"}
 }
 
-type winPTY struct{ c *conpty.ConPty }
+// backend: ConPTY do sistema (charmbracelet/x/conpty) ou o moderno (conpty_modern_windows.go).
+type backend interface {
+	ptyIO
+	spawn(name string, args []string, dir string, env []string) (pid int, h uintptr, err error)
+}
+
+type inboxPTY struct{ *conpty.ConPty }
+
+func (p inboxPTY) spawn(name string, args []string, dir string, env []string) (int, uintptr, error) {
+	// ComposeCommandLine (padrão do conpty) escapa cada arg no estilo CommandLineToArgvW
+	return p.Spawn(name, append([]string{name}, args...), &syscall.ProcAttr{Dir: dir, Env: env})
+}
+
+type winPTY struct {
+	c      backend
+	legacy bool // conhost do sistema no Win10: aplica o workaround das células de controle
+}
 
 // legacyConhost: conhost do Windows 10 / Server até 2022 (o do Windows 11 trata SI/SO como controle).
 var legacyConhost = func() bool {
@@ -37,7 +54,7 @@ var legacyConhost = func() bool {
 
 func (p winPTY) Read(b []byte) (int, error) {
 	n, err := p.c.Read(b)
-	if legacyConhost {
+	if p.legacy {
 		blankControlCells(b[:n])
 	}
 	return n, err
@@ -135,10 +152,6 @@ func newJob() windows.Handle {
 }
 
 func startProc(name string, args []string, dir string, env []string, cols, rows int) (ptyIO, procHandle, error) {
-	cp, err := conpty.New(cols, rows, 0)
-	if err != nil {
-		return nil, nil, err
-	}
 	// conpty.Spawn junta nome relativo com attr.Dir (semântica de syscall.StartProcess)
 	// e nunca consulta o PATH: "powershell.exe" virava <cwd>\powershell.exe.
 	if filepath.Base(name) == name {
@@ -146,12 +159,32 @@ func startProc(name string, args []string, dir string, env []string, cols, rows 
 			name = lp
 		}
 	}
-	argv := append([]string{name}, args...)
-	// ComposeCommandLine (padrão do conpty) escapa cada arg no estilo CommandLineToArgvW
-	pid, handle, err := cp.Spawn(name, argv, &syscall.ProcAttr{Dir: dir, Env: env})
-	if err != nil {
-		_ = cp.Close()
-		return nil, nil, err
+	var (
+		cp     backend
+		pid    int
+		handle uintptr
+	)
+	if modernConpty() {
+		if m, err := newModernPTY(cols, rows); err != nil {
+			log.Printf("conpty moderno indisponível (%v); usando ConPTY do sistema", err)
+		} else if pid, handle, err = m.spawn(name, args, dir, env); err != nil {
+			_ = m.Close()
+			log.Printf("conpty moderno falhou ao iniciar (%v); usando ConPTY do sistema", err)
+		} else {
+			cp = m
+		}
+	}
+	if cp == nil {
+		c, err := conpty.New(cols, rows, 0)
+		if err != nil {
+			return nil, nil, err
+		}
+		ib := inboxPTY{c}
+		if pid, handle, err = ib.spawn(name, args, dir, env); err != nil {
+			_ = c.Close()
+			return nil, nil, err
+		}
+		cp = ib
 	}
 	p := &winProc{pid: pid, h: windows.Handle(handle)}
 	p.soft = func() { _, _ = cp.Write([]byte{0x03}) }
@@ -169,5 +202,5 @@ func startProc(name string, args []string, dir string, env []string, cols, rows 
 			p.job = job
 		}
 	}
-	return winPTY{cp}, p, nil
+	return winPTY{c: cp, legacy: legacyConhost && !modernConpty()}, p, nil
 }

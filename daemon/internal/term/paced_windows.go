@@ -28,7 +28,7 @@ var (
 // sendPaced assume o envio quando o programa pediu bracketed paste e o texto é multilinha ou
 // maior que um pedaço. Roda em goroutine: quem chama (CLI, barra de broadcast) não fica preso.
 func (m *mgr) sendPaced(id, text string, bracketed, enter bool) bool {
-	if !legacyConhost || !bracketed || (len(text) <= pacedChunk && !containsNL(text)) {
+	if !legacyConhost || modernConpty() || !bracketed || (len(text) <= pacedChunk && !containsNL(text)) {
 		return false
 	}
 	done := make(chan struct{})
