@@ -441,7 +441,19 @@ export default function App() {
             selectionKeyCode={null}
             multiSelectionKeyCode={['Control', 'Shift']}
             deleteKeyCode={['Delete', 'Backspace']}
-            onBeforeDelete={async ({ edges }) => (edges.length ? { nodes: [], edges } : false)}
+            onSelectionStart={() => {
+              // tira o foco do terminal/nota: senão o Delete vai para o xterm e não para o canvas
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+            }}
+            onBeforeDelete={async ({ nodes: sel, edges }) => {
+              // cards/notas fecham pelo próprio close() (mata o pty, salva a nota), igual ao X
+              if (sel.length) {
+                if (window.confirm(`Fechar ${sel.length} card(s) selecionado(s)?`))
+                  window.dispatchEvent(new CustomEvent('colmeia:close-nodes', { detail: sel.map((n) => n.id) }))
+                return false
+              }
+              return edges.length ? { nodes: [], edges } : false
+            }}
             onEdgeContextMenu={(e, edge) => {
               e.preventDefault()
               setMenu({ id: edge.id, x: e.clientX, y: e.clientY })

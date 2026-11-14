@@ -186,6 +186,17 @@ function TerminalNode({ id, data, selected, positionAbsoluteX, positionAbsoluteY
     removeCard(id)
   }
 
+  // Delete/Backspace com o card selecionado (App.tsx dispara o evento)
+  const closeRef = useRef(close)
+  closeRef.current = close
+  useEffect(() => {
+    const h = (e: Event) => {
+      if ((e as CustomEvent<string[]>).detail.includes(id)) closeRef.current()
+    }
+    window.addEventListener('colmeia:close-nodes', h)
+    return () => window.removeEventListener('colmeia:close-nodes', h)
+  }, [id])
+
   const restart = async () => {
     termRef.current?.reset()
     await window.canvas.pty.restart(id)

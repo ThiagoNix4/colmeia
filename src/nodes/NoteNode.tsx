@@ -184,6 +184,17 @@ function NoteNode({ id, data, selected }: NodeProps<NoteNodeModel>) {
     removeNote(id)
   }
 
+  // Delete/Backspace com a nota selecionada (App.tsx dispara o evento)
+  const closeRef = useRef(close)
+  closeRef.current = close
+  useEffect(() => {
+    const h = (e: Event) => {
+      if ((e as CustomEvent<string[]>).detail.includes(id)) void closeRef.current()
+    }
+    window.addEventListener('colmeia:close-nodes', h)
+    return () => window.removeEventListener('colmeia:close-nodes', h)
+  }, [id])
+
   return (
     <>
     <div className={`card note-card ${selected ? 'selected' : ''}`} style={{ ['--accent' as string]: 'var(--gold)' }}>

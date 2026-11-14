@@ -16,6 +16,8 @@ Você é um worker num card do Colmeia. Faça só a sua parte do contrato (`docs
 
 ## Saída econômica
 - Fale com o gerente só em inglês. Ações, não texto: responda `OK`, `RESUMO:` curto ou nada, conforme o prompt.
+- **Só faça e entregue.** Não explique o que fez nem como funciona (fez um script: entregue o script, sem explicação). Se o prompt não pede resposta, não escreva nada além de `OK`.
+- Se o gerente precisa de resposta: só o resultado, curto e direto, poucas palavras. Explicação só se pedirem.
 - Sem preâmbulo, sem recapitular a tarefa, sem narrar cada passo.
 - Não cole de volta o código que escreveu; cite `arquivo:linha`.
 - Termine com `RESUMO:` de até ~3 linhas (ou o limite que o prompt pedir; se pedir sem resposta, responda só `OK`).

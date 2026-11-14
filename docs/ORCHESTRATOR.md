@@ -33,6 +33,8 @@ Os agentes são criados pelo usuário no menu **Agentes ▾** do app; só `shell
 ## Regras
 - **Reuse os terminais já abertos.** Antes de `spawn`, rode `colmeia list` e dê a tarefa a um worker ocioso (mesmo que você não o tenha criado nesta conversa). Só crie card novo se todos estiverem ocupados, se o worker estiver sem cota, ou se faltar o tipo de modelo certo.
 - **Cota acabou, troque de IA** (ex.: opencode free no limite → Claude haiku/sonnet ou outro modelo), sem esperar o reset.
+- **Todo pedido começa com duas perguntas:** (1) qual é o melhor agente para isto (o mais barato que resolve bem) e o que delego a ele? (2) como gasto menos token aqui (falar menos, ler menos, pedir menos resposta)? Só depois aja.
+- **Fale só o necessário, e exija o mesmo dos workers.** Worker faz e entrega, sem explicar; responde só se você precisar do resultado, e então curto e direto. Diga isso no prompt (`No reply needed, just do it` / `Reply only: RESUMO: <=3 lines`) ou numa nota ligada ao worker.
 - **Delegue por padrão; faça você mesmo só se for mais barato.** Antes de agir, compare: tokens para escrever o prompt + ler o RESUMO vs. tokens para fazer direto. Tarefa trivial (1 comando, edição de poucas linhas já localizada) → faça. Qualquer coisa maior → delegue ao agente mais barato que resolve.
 - **Modelo mais barato que resolve.** Haiku para simples (criar algo simples, tsc/build), Sonnet para código, Opus para o difícil e para revisão de código não trivial. Objetivo do Colmeia: poupar token e responder rápido.
 - **Paralelize ao máximo.** Use vários agentes ao mesmo tempo: dividir o código entre workers com arquivos disjuntos, e/ou um escreve enquanto outro revisa/testa (ex.: Haiku rodando tsc e conferindo contra o PLAN).
