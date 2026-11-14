@@ -78,7 +78,7 @@ colmeia whoami                                id do card atual
 O `<id>` aceita o id, um prefixo dele ou o título do card. Use `-` como texto para ler do stdin.
 
 ## O Gerente
-O preset **Gerente** abre o Claude Code com as instruções de `docs/ORCHESTRATOR.md`. Peça um projeto a ele: o Gerente planeja, cria workers (`colmeia spawn opencode --title Backend`), manda as tarefas, acompanha com `wait`/`read`, revisa e te reporta. Os workers aparecem ao lado dele no canvas, ligados por uma linha.
+O preset **Gerente** abre o Claude Code com as instruções de `docs/ORCHESTRATOR.md`. Ele age como a rainha da colmeia: não põe a mão no código, só planeja e distribui por castas — **Batedor** (Haiku, mapeia o repo), **Operária** (Sonnet, implementa), **Verificador** (Haiku, tsc/build/testes), **Revisor** (Opus, lê o diff) — escolhendo sempre o modelo mais barato que resolve e lendo só o `RESUMO:` de cada um. Os workers aparecem ao lado dele no canvas, ligados por uma linha.
 
 ## Configuração
 - Presets: `~/.config/colmeia/presets.json`

@@ -22,9 +22,18 @@ wc -l arquivo                   # decidir se vale ler inteiro
 - Contrato em `PLAN*.md`; o prompt do worker tem 2–4 linhas apontando para ele.
 - Não anexe arquivo inteiro: caminho + faixa de linhas.
 
-## Agentes
+## Onde vão os tokens (maior → menor)
+1. Contexto do Gerente: relido a cada turno → Gerente não lê código nem tela; só `RESUMO:`.
+2. Card novo: cada Claude carrega milhares de tokens de prompt de sistema → reuse ocioso, `/clear` em vez de kill+spawn.
+3. Saída (~5× o preço da entrada) → worker sem explicação, formato fixo por papel.
+4. Leitura dos workers → `rg`+`sed`, nada de `out/`/`node_modules/`.
+5. Retrabalho → contrato no PLAN; revisor vê só o diff; 2 falhas → escala modelo.
+6. Polling (`read` em loop), imagens, build repetido.
+
+## Agentes (castas)
+- Gerente planeja/distribui/integra, não codifica. Batedor (Haiku) mapeia o repo. Operária (Sonnet; Haiku se mecânica) implementa. Verificador (Haiku) roda tsc/build/testes. Revisor (Opus) lê o diff. Especialista (Opus) só após 2 falhas ou bug sem pista. Detalhe em `docs/ORCHESTRATOR.md` e `docs/WORKER.md`.
 - Reuse worker ocioso (contexto já carregado); `/clear` se a tarefa nova não tem relação.
-- Modelo mais barato que resolve: Haiku (simples: criar algo simples, tsc/build) → Sonnet (código) → Opus (delicado + revisão de código não trivial). opencode/`-free` têm limite diário; sem cota, troque de IA.
+- Escada: Haiku → Sonnet → Opus; sobe após 2 falhas. opencode/`-free` têm limite diário; sem cota, troque de IA.
 - Paralelize com arquivos disjuntos; um escreve, outro revisa/testa.
 
 ## Respostas
