@@ -18,7 +18,7 @@ O `<id>` pode ser o título do card (ex.: `colmeia read Backend`).
 
 ## Presets de worker (agentes)
 Os agentes são criados pelo usuário no menu **Agentes ▾** do app; só `shell` (Terminal) e `claude-manager` (Gerente) vêm embutidos. Rode `colmeia presets` para ver o que existe e use o `id` no `spawn`.
-- Se faltar o agente/modelo certo, crie um card `shell` e rode a IA nele: `colmeia spawn shell --title X` + `colmeia send X "claude --model haiku"` (ou `opencode -m <provider/modelo>`, `codex -m ...`, `gemini -m ...`; lista do opencode: `opencode models`; se o TUI recusar `-m`, troque com `/models` dentro dele).
+- Se faltar o agente/modelo certo, crie um card `shell` e rode a IA nele: `colmeia spawn shell --title X` + `colmeia send X "claude --model haiku"` (ou `codex -m ...`, `gemini -m ...`). opencode: lista em `opencode models`; o TUI do opencode 2.x não aceita `-m` ("Unrecognized flag"), então use `opencode run -m <provider/modelo> --auto "tarefa"` (uma tarefa e sai) ou `opencode mini -m <provider/modelo>` (interativo); no 1.x, `opencode -m <provider/modelo>`. Com `--auto` o agente aprova tudo sozinho: escreva na tarefa o que ele não pode fazer (ex.: "do not install anything").
 - Escolha o agente/modelo mais competente e barato para a tarefa: Haiku/flash/`-free` para tarefas simples (criar algo simples, rodar tsc/build); Sonnet/codex/kimi/glm para código; Opus/gemini pro/gpt para o difícil e para revisão de código não trivial (achar bug exige modelo de ponta). Os `-free` têm limite diário.
 
 ## Fluxo de trabalho

@@ -95,9 +95,14 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 		cwd = home
 	}
 	args := shellArgs // unix: -l; windows: -NoLogo
+	ocModel := "" // modelo do opencode a passar por variável de ambiente (só Windows)
 	if preset != nil && preset.Command != "" {
 		cmd := withClaudeSettings(strings.ReplaceAll(preset.Command, "{docs}", docsArg(s.cfg.DocsDir)), writeClaudeSettings(s.cfg.CliDir))
 		if runtime.GOOS == "windows" {
+			// opencode 2.x: sem -m no TUI → modelo via OPENCODE_CONFIG_CONTENT + --standalone (ver opencode.go)
+			if rest, model, ok := opencodeModelArg(cmd); ok && opencodeTUILacksModel(opencodeHelp()) {
+				cmd, ocModel = rest, model
+			}
 			// PowerShell: -NoExit mantém o shell após o comando
 			args = []string{"-NoLogo"}
 			if preset.KeepShell {
@@ -140,6 +145,9 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 		}
 		if !hasPolicy {
 			env["PSExecutionPolicyPreference"] = "RemoteSigned"
+		}
+		if ocModel != "" {
+			env["OPENCODE_CONFIG_CONTENT"] = opencodeConfigWithModel(env["OPENCODE_CONFIG_CONTENT"], ocModel)
 		}
 	}
 	cols, rows := in.Cols, in.Rows
