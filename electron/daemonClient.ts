@@ -9,12 +9,8 @@ import { randomBytes } from 'node:crypto'
 export type DaemonEvent = { ev: string; [k: string]: unknown }
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }
 
-const configDir = () => path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'colmeia')
-export const daemonSocketPath = () =>
-  process.env.COLMEIA_SOCK_PATH ||
-  (process.platform === 'win32'
-    ? `\\\\.\\pipe\\colmeia-${os.userInfo().username}`
-    : path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'colmeia.sock'))
+import { INSTANCE, configDir, daemonSocketPath } from './instance'
+export { daemonSocketPath }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -122,15 +118,16 @@ export class DaemonClient {
   }
 
   /** Ping: devolve versão/dirs reportados ('' / undefined se o daemon não informa) ou null se não responde. */
-  private async ping(): Promise<{ version: string; cliDir?: string; docsDir?: string } | null> {
+  private async ping(): Promise<{ version: string; cliDir?: string; docsDir?: string; instance?: string } | null> {
     try {
       this.sock = await this.open()
-      const r = await this.call<{ version?: string; cliDir?: string; docsDir?: string } | string | null>('ping', {}, 3000)
+      const r = await this.call<{ version?: string; cliDir?: string; docsDir?: string; instance?: string } | string | null>('ping', {}, 3000)
       if (!r || typeof r !== 'object') return { version: '' }
       return {
         version: typeof r.version === 'string' ? r.version : '',
         cliDir: typeof r.cliDir === 'string' ? r.cliDir : undefined,
-        docsDir: typeof r.docsDir === 'string' ? r.docsDir : undefined
+        docsDir: typeof r.docsDir === 'string' ? r.docsDir : undefined,
+        instance: typeof r.instance === 'string' ? r.instance : undefined
       }
     } catch {
       this.sock?.destroy()
@@ -142,7 +139,7 @@ export class DaemonClient {
   /** Versão do binário em disco (`colmeiad --version`); '' se indisponível. */
   private binVersion(): string {
     try {
-      return execFileSync(this.binPath, ['--version'], { timeout: 2000, encoding: 'utf8' }).trim()
+      return execFileSync(this.binPath, ['--version'], { timeout: 2000, encoding: 'utf8', windowsHide: true }).trim()
     } catch {
       return ''
     }
@@ -175,6 +172,14 @@ export class DaemonClient {
   private async connect_(): Promise<void> {
     const running = await this.ping()
     if (running !== null) {
+      // daemon de outra instalação (variante) no mesmo socket: nunca anexa, senão os apps se misturam
+      if (running.instance !== undefined && running.instance !== INSTANCE) {
+        this.sock?.destroy()
+        throw new Error(
+          `o socket ${this.sockPath} pertence à instância "${running.instance}", não a "${INSTANCE}". ` +
+            'Use outro "name" no package.json (ou remova COLMEIA_SOCK_PATH).'
+        )
+      }
       const expected = running.version ? this.binVersion() : ''
       const d = this.expectDirs
       const dirsDiffer = !!d && ((running.cliDir !== undefined && running.cliDir !== d.cli) || (running.docsDir !== undefined && running.docsDir !== d.docs))
@@ -190,7 +195,7 @@ export class DaemonClient {
         }
         try {
           this.sock?.destroy()
-          execFileSync(this.binPath, ['--stop'], { timeout: 5000 })
+          execFileSync(this.binPath, ['--stop'], { timeout: 5000, windowsHide: true })
         } catch {
           /* segue: se ainda responder, o loop abaixo falha com mensagem clara */
         }

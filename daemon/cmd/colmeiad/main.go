@@ -38,7 +38,7 @@ func firstExisting(cands ...string) string {
 
 func main() {
 	var (
-		sock = flag.String("sock", "", "caminho do socket (padrão: $COLMEIA_SOCK_PATH ou $XDG_RUNTIME_DIR/colmeia.sock)")
+		sock = flag.String("sock", "", "caminho do socket (padrão: $COLMEIA_SOCK_PATH ou $XDG_RUNTIME_DIR/<instância>.sock; instância = $COLMEIA_INSTANCE, padrão colmeia)")
 		docs = flag.String("docs", os.Getenv("COLMEIA_DOCS_DIR"), "pasta docs/ (ORCHESTRATOR.md)")
 		cli  = flag.String("cli", os.Getenv("COLMEIA_CLI_DIR"), "pasta cli/ (colmeia, statusline)")
 		stop = flag.Bool("stop", false, "para o daemon em execução (SIGTERM)")

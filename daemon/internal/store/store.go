@@ -137,6 +137,9 @@ func readWorkspaceFile(file string) Workspace {
 
 const managerID = "claude-manager"
 
+// ManagerID: id do preset do Gerente (o spawn escolhe as instruções do card por ele).
+const ManagerID = managerID
+
 var managerTools = []string{"claude", "opencode", "codex", "gemini"}
 var agentTools = []string{"claude", "opencode", "codex", "gemini", "custom"}
 var removedPresets = []string{"opencode-deepseek"}
@@ -170,7 +173,8 @@ func ManagerCommand(tool, model string) string {
 	}
 	switch tool {
 	case "opencode":
-		return "opencode" + mf("-m") + " --prompt " + o
+		// sem --prompt: ORCHESTRATOR.md entra como instrução de sistema no spawn (api/opencode.go)
+		return "opencode" + mf("-m")
 	case "codex":
 		return "codex" + mf("-m") + " " + o
 	case "gemini":

@@ -3,16 +3,19 @@ module colmeia/daemon
 go 1.27
 
 require (
+	github.com/Microsoft/go-winio v0.6.4
 	github.com/charmbracelet/ultraviolet v0.0.0-20260303162955-0b88c25f3fff
+	github.com/charmbracelet/x/conpty v0.2.0
 	github.com/charmbracelet/x/vt v0.1.0
 	github.com/creack/pty v1.1.24
+	github.com/fsnotify/fsnotify v1.10.1
+	golang.org/x/sys v0.50.0
+	modernc.org/sqlite v1.62.0
 )
 
 require (
-	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/charmbracelet/colorprofile v0.4.2 // indirect
 	github.com/charmbracelet/x/ansi v0.11.7 // indirect
-	github.com/charmbracelet/x/conpty v0.2.0 // indirect
 	github.com/charmbracelet/x/exp/ordered v0.1.0 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
@@ -20,7 +23,6 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
-	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -31,9 +33,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.50.0 // indirect
 	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.62.0 // indirect
 )

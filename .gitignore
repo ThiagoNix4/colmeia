@@ -6,3 +6,11 @@ dist/
 desktop/build/bin/
 desktop/frontend/dist/
 out/desktop-renderer/
+daemon/colmeiad
+daemon/colmeiad.exe
+*.exe~
+.claude/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

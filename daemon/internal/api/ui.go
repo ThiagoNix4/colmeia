@@ -111,6 +111,10 @@ func (s *Server) handleUI(cmd string, a Args) (any, error) {
 		s.mu.Unlock()
 		return Args{"replay": replay, "offset": info.Offset, "info": toCard(info)}, nil
 	case "pty.restart":
+		// remonta o comando: a sessão do agente pode já existir (--session-id → --resume)
+		if info, ok := t.Get(id); ok && info.Preset != "" {
+			return nil, t.RestartWith(s.buildSpawn(spawnIn{ID: id, Preset: info.Preset, Title: info.Title, Cwd: info.Cwd}))
+		}
 		return nil, t.Restart(id)
 	case "pty.write":
 		data, _ := a["data"].(string)

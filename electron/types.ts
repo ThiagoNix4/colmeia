@@ -39,6 +39,8 @@ export interface CardInfo extends CardMeta {
 export interface SpawnRequest extends CardMeta {
   cols?: number
   rows?: number
+  /** ms epoch: sessão viva criada antes disso recomeça do zero (preenchido pelo main ao reabrir o app). */
+  freshBefore?: number
 }
 
 export interface WorkspaceCard extends CardMeta {

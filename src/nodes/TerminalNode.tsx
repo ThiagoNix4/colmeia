@@ -6,6 +6,9 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { useStore, type CardNode } from '../store'
 import { subscribe } from '../terminalBus'
 import Ports from '../components/Ports'
+import { installXtermZoomFix } from '../xtermZoomFix'
+
+installXtermZoomFix() // clique/seleção do terminal na célula certa com o canvas em zoom
 
 const THEME = {
   background: '#12151c',

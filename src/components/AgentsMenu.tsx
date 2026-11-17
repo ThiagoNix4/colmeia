@@ -43,7 +43,8 @@ interface Draft {
 const managerPreview = (tool: AgentTool, model: string) => {
   const O = `"$(cat '{docs}/ORCHESTRATOR.md')"`
   const m = model.trim()
-  if (tool === 'opencode') return `opencode${m ? ` -m ${m}` : ''} --prompt ${O}`
+  // opencode: ORCHESTRATOR.md vai como instrução de sistema (sem mensagem inicial, sem gastar tokens)
+  if (tool === 'opencode') return `opencode${m ? ` -m ${m}` : ''}`
   if (tool === 'codex') return `codex${m ? ` -m ${m}` : ''} ${O}`
   if (tool === 'gemini') return `gemini${m ? ` -m ${m}` : ''} -i ${O}`
   return `claude${m ? ` --model ${m}` : ''} --effort medium --append-system-prompt ${O}`

@@ -1,0 +1,50 @@
+# Pacotes Linux (AppImage + .deb) da release.
+# Ao publicar uma release no GitHub, compila num Ubuntu do GitHub e anexa os arquivos à própria
+# release. Também dá para rodar à mão (aba Actions → "Release Linux" → Run workflow) informando a tag.
+name: Release Linux
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag da release (ex.: v0.1.2)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+
+      - name: Dependências
+        run: npm ci
+
+      - name: Build (app + daemon)
+        run: npm run build
+
+      - name: Pacotes AppImage e .deb
+        run: npx electron-builder --linux --x64 --publish never
+
+      - name: Anexar à release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/*.AppImage dist/*.deb --clobber

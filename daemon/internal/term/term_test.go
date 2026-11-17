@@ -14,14 +14,17 @@ func spawnSh(t *testing.T) (Manager, string) {
 	t.Cleanup(func() { _ = m.Kill("c1") })
 	// windows: nome relativo de propósito (cobre a resolução via PATH no ConPTY);
 	// os comandos dos testes (echo $((…)), sleep) funcionam no sh e no PowerShell
-	sh := "sh"
-	if runtime.GOOS == "windows" {
-		sh = "powershell.exe"
-	}
-	if _, _, err := m.Ensure(SpawnReq{ID: "c1", Command: sh, Args: testShellArgs(), Cwd: dir, Cols: 80, Rows: 24}); err != nil {
+	if _, _, err := m.Ensure(SpawnReq{ID: "c1", Command: testShell(), Args: testShellArgs(), Cwd: dir, Cols: 80, Rows: 24}); err != nil {
 		t.Fatal(err)
 	}
 	return m, dir
+}
+
+func testShell() string {
+	if runtime.GOOS == "windows" {
+		return "powershell.exe"
+	}
+	return "sh"
 }
 
 func testShellArgs() []string {

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"syscall"
 
+	"colmeia/daemon/internal/auth"
 	"colmeia/daemon/internal/term"
 
 	"golang.org/x/sys/unix"
@@ -42,13 +43,13 @@ func clearPid(lock *os.File, _ string) { _ = lock.Truncate(0) }
 // setupProcess: órfãos dos cards são reparentados ao daemon (peer creds os rejeita).
 func setupProcess() { _ = unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) }
 
-// defaultSock: $XDG_RUNTIME_DIR/colmeia.sock (ou tmp).
+// defaultSock: $XDG_RUNTIME_DIR/<instância>.sock (ou tmp); padrão colmeia.sock.
 func defaultSock() string {
 	rt := os.Getenv("XDG_RUNTIME_DIR")
 	if rt == "" {
 		rt = os.TempDir()
 	}
-	return filepath.Join(rt, "colmeia.sock")
+	return filepath.Join(rt, auth.Instance()+".sock")
 }
 
 // notifyStop: no unix a parada vem por SIGTERM.

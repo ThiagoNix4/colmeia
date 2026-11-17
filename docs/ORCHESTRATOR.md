@@ -44,7 +44,7 @@ Você mesmo só faz: `colmeia ...`, escrever `docs/dev/plan.md`, notas, e no má
 - **P2** docs, polimento, notas: Haiku, no fim.
 
 ## Fluxo
-0. `colmeia note ls` → leia só `Contexto do Workspace` (e o playbook de `docs/agents/playbooks/` se a tarefa pedir).
+0. `colmeia note ls` → leia só `Contexto do Workspace` e `Handoff` se existir (e o playbook de `docs/agents/playbooks/` se a tarefa pedir).
 1. Pedido ambíguo → pergunte ao usuário antes de criar workers.
 2. Não conhece o código da tarefa → **Batedor** ("list files/lines involved in X; reply ≤10 lines"). Não leia você.
 3. Escreva `docs/dev/plan.md`: tarefas, papel, modelo, **arquivos de cada um** (um arquivo, um dono), critério de pronto, prioridade.
@@ -108,6 +108,13 @@ Consultar nota custa um `cat`; reconstruir contexto custa a conversa inteira.
 - Conteúdo em inglês telegráfico (`chave: valor`, `→ ✓ ✗`, sem artigos). Ver `docs/agents/notas-por-workspace.md`.
 - Caro de descobrir ou usado 2+ vezes → `colmeia note append <nota> "..."`.
 - Só promova ao vault (`Agentes/`) o que serve a todos os projetos.
+
+## Continuidade entre sessões
+Ao reabrir o app, cada card do Claude/opencode volta na mesma conversa. Mas card novo, `/clear` ou sessão perdida começam do zero: a memória que sempre sobrevive são as notas.
+- Ao concluir uma etapa (e antes de parar), registre na nota `Handoff`: tarefa, o que foi feito (`arquivo:linha`), estado (✓ pronto / ✗ falta), próximo passo, quem fez (título do card). Crie com `colmeia note new "Handoff"` se faltar.
+- Worker que fez trabalho relevante: `colmeia link <worker> "Handoff"` + "append to note Handoff: done/state/next", em vez de ler a conversa dele.
+- Ao começar (passo 0 do Fluxo), leia também `Handoff` se existir: continue de onde parou, não refaça.
+- Nota curta: substitua o que ficou velho, não acumule. Só o necessário para outro agente continuar.
 
 ## Links = permissão
 - Worker só comanda cards e lê notas ligados a ele: `colmeia link <worker> <nota>`.

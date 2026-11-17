@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"colmeia/daemon/internal/auth"
 	"colmeia/daemon/internal/store"
@@ -73,6 +74,8 @@ type spawnIn struct {
 	Cwd    string `json:"cwd"`
 	Cols   int    `json:"cols"`
 	Rows   int    `json:"rows"`
+	// FreshBefore (ms epoch): o app abriu neste instante; sessão viva mais antiga recomeça do zero.
+	FreshBefore int64 `json:"freshBefore"`
 }
 
 // buildSpawn monta o SpawnReq (shell de login, comando do preset, env do card).
@@ -95,14 +98,28 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 		cwd = home
 	}
 	args := shellArgs // unix: -l; windows: -NoLogo
-	ocModel := "" // modelo do opencode a passar por variável de ambiente (só Windows)
+	ocConfig := "" // OPENCODE_CONFIG_CONTENT do card (modelo + instruções do Colmeia), se for opencode
+	agent := false // card de agente que retoma a própria conversa (sem replay de histórico cru)
+	restartOnReopen := false
 	if preset != nil && preset.Command != "" {
 		cmd := withClaudeSettings(strings.ReplaceAll(preset.Command, "{docs}", docsArg(s.cfg.DocsDir)), writeClaudeSettings(s.cfg.CliDir))
-		if runtime.GOOS == "windows" {
-			// opencode 2.x: sem -m no TUI → modelo via OPENCODE_CONFIG_CONTENT + --standalone (ver opencode.go)
-			if rest, model, ok := opencodeModelArg(cmd); ok && opencodeTUILacksModel(opencodeHelp()) {
-				cmd, ocModel = rest, model
+		if c := claudeSessionArg(cmd, in.ID); c != cmd {
+			cmd, agent = c, true
+		}
+		if isOpencodeCmd(cmd) {
+			agent = true
+			// TUI de tela cheia: o replay de bytes crus sai quebrado ao reabrir o app. Recria o
+			// processo; com a sessão fixa ele volta na mesma conversa, desenhado do zero.
+			restartOnReopen = true
+			cmd = opencodeSessionArg(cmd, in.ID)
+			// instruções implícitas (prompt de sistema, sem mensagem inicial = sem gastar tokens ao abrir)
+			rules := "WORKER.md"
+			if preset.ID == store.ManagerID {
+				rules = "ORCHESTRATOR.md"
 			}
+			cmd, ocConfig = opencodeSetup(cmd, os.Getenv("OPENCODE_CONFIG_CONTENT"), filepath.Join(s.cfg.DocsDir, rules), opencodeHelp())
+		}
+		if runtime.GOOS == "windows" {
 			// PowerShell: -NoExit mantém o shell após o comando
 			args = []string{"-NoLogo"}
 			if preset.KeepShell {
@@ -133,7 +150,8 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 			pathKey = k
 		}
 	}
-	env[pathKey] = s.cfg.CliDir + string(os.PathListSeparator) + env[pathKey]
+	env[pathKey] = s.cfg.CliDir + string(os.PathListSeparator) + freshPath(env[pathKey])
+	env["COLMEIA_INSTANCE"] = auth.Instance() // CLI e statusline dos cards falam com ESTE daemon
 	if runtime.GOOS == "windows" {
 		// CLIs instaladas pelo npm (opencode, codex, gemini…) são shims .ps1, que o PowerShell recusa com a
 		// política padrão (Restricted). Escopo Process = só os processos do card; respeita o que já vier definido.
@@ -146,9 +164,9 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 		if !hasPolicy {
 			env["PSExecutionPolicyPreference"] = "RemoteSigned"
 		}
-		if ocModel != "" {
-			env["OPENCODE_CONFIG_CONTENT"] = opencodeConfigWithModel(env["OPENCODE_CONFIG_CONTENT"], ocModel)
-		}
+	}
+	if ocConfig != "" {
+		env["OPENCODE_CONFIG_CONTENT"] = ocConfig
 	}
 	cols, rows := in.Cols, in.Rows
 	if cols == 0 {
@@ -158,7 +176,11 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 		rows = 30
 	}
 	cols, rows = max(20, cols), max(5, rows)
-	return term.SpawnReq{ID: in.ID, Preset: in.Preset, Title: in.Title, Cwd: cwd, Command: shell, Args: args, Env: env, Cols: cols, Rows: rows}
+	req := term.SpawnReq{ID: in.ID, Preset: in.Preset, Title: in.Title, Cwd: cwd, Command: shell, Args: args, Env: env, Cols: cols, Rows: rows, NoHistory: agent}
+	if in.FreshBefore > 0 && restartOnReopen {
+		req.FreshBefore = time.UnixMilli(in.FreshBefore)
+	}
+	return req
 }
 
 // docsArg: no Windows (PowerShell) ' vira '' dentro de aspas simples.

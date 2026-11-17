@@ -9,19 +9,27 @@ Feito para Linux (testado no Arch, Wayland/GNOME), com versão beta para Windows
 - Go 1.22+ (compila o daemon `colmeiad`)
 - Opcional: `claude` (Claude Code) e `opencode` no PATH
 
+## Novidades da 0.1.2
+- Cards do Claude e do opencode reabrem na **mesma conversa** (sessão fixa por card); o opencode não fica mais com a tela quebrada ao reabrir o app.
+- opencode recebe as instruções do Colmeia como prompt de sistema: nenhuma mensagem é enviada ao abrir o card (sem gastar tokens).
+- Windows: CLIs instaladas com o app aberto (ex.: `claude`) funcionam nos cards novos, e não piscam mais janelas de console ao abrir o app.
+- Clique e seleção no terminal acertam a célula com qualquer zoom do canvas.
+- Variantes (forks) do Colmeia rodam lado a lado sem misturar daemon e dados (ver [Variantes](#variantes-forks-do-colmeia)).
+- Nota `Handoff` nas diretrizes do Gerente e dos workers para passar trabalho entre cards.
+
 ## Novidades da 0.1.1
 - Gerente escolhe entre todos os agentes do PC (`colmeia agents`), policy por workspace free/ask/all (`colmeia policy` + seletor Modelos na barra).
 
 ## Download (Releases)
 Baixe na página **Releases** do GitHub. O código é o mesmo para Linux e Windows; só muda o pacote.
 
-**Linux x64**
+**Linux x64** (pacotes na release 0.1.1; para a 0.1.2 no Linux, instale a partir do código)
 - **AppImage:** `chmod +x Colmeia-0.1.1.AppImage && ./Colmeia-0.1.1.AppImage`
 - **Debian/Ubuntu:** `sudo apt install ./colmeia_0.1.1_amd64.deb`
 
 **Windows 10/11 x64 (beta)**
-- **Instalador:** baixe `Colmeia-Setup-0.1.1.exe`, execute e abra **Colmeia** pelo menu Iniciar.
-- **Portátil:** baixe `Colmeia-0.1.1-portable.exe` e abra com duplo clique (não precisa instalar).
+- **Instalador:** baixe `Colmeia-Setup-0.1.2.exe`, execute e abra **Colmeia** pelo menu Iniciar.
+- **Portátil:** baixe `Colmeia-0.1.2-portable.exe` e abra com duplo clique (não precisa instalar).
 - O SmartScreen pode avisar "editor desconhecido" (o app não é assinado): clique em **Mais informações → Executar assim mesmo**.
 - **Não precisa instalar nada além do app** para os cards de terminal. A CLI `colmeia` e a linha de status do Claude usam o Node.js se estiver no PATH; senão usam o próprio `Colmeia.exe` como Node.
 - Para os cards de agente (Gerente, Apis…): instale o [Claude Code](https://docs.claude.com/claude-code) (`irm https://claude.ai/install.ps1 | iex` no PowerShell) e faça login uma vez com `claude`. Ele exige o [Git for Windows](https://git-scm.com/download/win).
@@ -37,6 +45,16 @@ npm install            # instala as dependências
 npm run install-app    # build + CLI `colmeia` em ~/.local/bin + atalho no menu
 ```
 Depois disso, abra **Colmeia** pelo menu do GNOME. Para desenvolver, use `npm run dev`.
+
+## Instalação a partir do código (Windows)
+Requer Node.js 20+, Go 1.22+ e Git. No PowerShell, dentro da pasta do projeto:
+```powershell
+npm ci                 # dependências
+npm run dist:win       # gera dist\Colmeia-Setup-<versão>.exe e o portátil
+```
+Para desenvolver: `npm run build:daemon:win` uma vez e depois `npm run dev`.
+
+CLIs instaladas com o app já aberto (ex.: `claude`) aparecem nos cards novos sem reiniciar nada: o daemon relê o PATH do registro do Windows a cada card.
 
 Para gerar os pacotes: `npm run dist` (Linux: AppImage + .deb) e `npm run dist:win` (Windows: instalador + portátil; no Windows roda direto com Node + Go, a partir do Linux precisa também de `wine`). Veja [docs/WINDOWS.md](docs/WINDOWS.md).
 
@@ -56,7 +74,14 @@ Para gerar os pacotes: `npm run dist` (Linux: AppImage + .deb) e `npm run dist:w
 | Mensagem em massa | Barra inferior: alvo **Selecionados**, **Conectados aos selecionados** ou **Todos**. Enter envia, Shift+Enter quebra linha |
 | Workspaces | Seletor no canto superior direito: ＋ cria, ✎ renomeia e 🗑 exclui o workspace atual |
 
-O layout é salvo sozinho. Ao reabrir o app, os cards voltam e os comandos deles são executados de novo (o histórico do terminal não é restaurado).
+O layout é salvo sozinho. Fechar o app não fecha os terminais: o daemon os mantém. Ao reabrir:
+- **Claude Code e terminais comuns** continuam exatamente onde estavam.
+- **opencode** é reaberto na **mesma conversa** (cada card tem uma sessão fixa, `--session ses_colmeia_<id>`), desenhado do zero. A tela cheia do opencode não sobrevive a um replay de bytes.
+- Se o PC reiniciou, cada card do Claude volta na sua conversa (`--resume`, com uma sessão fixa por card) e o do opencode também.
+
+Para passar trabalho a um card novo, o Gerente e os workers registram o que fizeram na nota `Handoff` (regras em `docs/ORCHESTRATOR.md` e `docs/WORKER.md`).
+
+As instruções do Colmeia entram de forma implícita: no Claude Code por `--append-system-prompt`, no opencode pelo campo `instructions` da configuração. Nenhuma mensagem é enviada ao abrir o card, então isso não gasta tokens.
 
 ## CLI `colmeia`
 Funciona dentro de qualquer card (já está no PATH deles) e em qualquer terminal depois do `install-app`.
@@ -89,7 +114,19 @@ O preset **Gerente** abre o Claude Code com as instruções de `docs/ORCHESTRATO
 - Presets: `~/.config/colmeia/presets.json`
 - Workspaces: `~/.config/colmeia/workspaces/*.json`
 - Pasta padrão dos projetos: `~/ai-projects`
-- Socket da API: `$XDG_RUNTIME_DIR/colmeia.sock`
+- Socket da API: `$XDG_RUNTIME_DIR/colmeia.sock` (Windows: named pipe `\\.\pipe\colmeia-<usuário>`)
+
+No Windows (inclusive `C:\Users\<você>\.config\colmeia`), os caminhos são os mesmos, a partir da pasta do usuário.
+
+## Variantes (forks) do Colmeia
+Cada instalação tem uma **instância**, que é o `"name"` do `package.json` (padrão `colmeia`). Dela saem a pasta de config (`~/.config/<name>`), o socket/pipe do daemon, a pasta de dados (`~/.local/share/<name>`), o perfil do Electron e a trava de "um app aberto por vez".
+
+Para criar uma variante que rode **ao lado** do Colmeia original, sem misturar workspaces, agentes e cards, mude no `package.json`:
+```json
+"name": "colmeia-minha-variante",
+"build": { "appId": "dev.colmeia.minha-variante", "productName": "Colmeia Minha Variante" }
+```
+Se o `name` ficar igual, as duas cópias são o **mesmo app**: dividem o daemon e os dados. Para testar sem editar o arquivo, também dá para usar a variável `COLMEIA_INSTANCE=<nome>`. Um app aberto de dentro de um card (por exemplo, uma IA rodando `npm run dev`) ignora as variáveis herdadas do card.
 
 Exemplo de preset novo (os presets são lidos quando o app abre):
 ```json

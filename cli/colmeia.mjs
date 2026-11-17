@@ -6,12 +6,19 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 
+// Instância (ver electron/instance.ts): cada variante do Colmeia tem seu daemon; os cards herdam COLMEIA_INSTANCE.
+const INSTANCE =
+  (process.env.COLMEIA_INSTANCE || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '')
+    .replace(/^\.+|\.+$/g, '') || 'colmeia'
 const SOCK =
   process.env.COLMEIA_SOCK ||
   process.env.COLMEIA_SOCK_PATH ||
   (process.platform === 'win32'
-    ? `\\\\.\\pipe\\colmeia-${os.userInfo().username}`
-    : path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'colmeia.sock'))
+    ? `\\\\.\\pipe\\${INSTANCE}-${os.userInfo().username}`
+    : path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), `${INSTANCE}.sock`))
 
 const NOTE_HELP = `  colmeia note ls [--all]                       lista as notas ligadas a você (--all: todas, com marca [ligada])
   colmeia note new <título> [--near ID]         cria uma nota (imprime o caminho do .md)

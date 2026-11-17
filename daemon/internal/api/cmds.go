@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"colmeia/daemon/internal/auth"
 	"colmeia/daemon/internal/links"
 	"colmeia/daemon/internal/notes"
 	"colmeia/daemon/internal/store"
@@ -286,7 +287,7 @@ func (s *Server) handleCLI(from, cmd string, a Args) (any, error) {
 	ws := s.callerWs(from)
 	switch cmd {
 	case "ping":
-		return Args{"pong": "pong", "version": s.cfg.Version, "cliDir": s.cfg.CliDir, "docsDir": s.cfg.DocsDir}, nil
+		return Args{"pong": "pong", "version": s.cfg.Version, "cliDir": s.cfg.CliDir, "docsDir": s.cfg.DocsDir, "instance": auth.Instance()}, nil
 	case "policy":
 		if v, ok := a["set"].(string); ok {
 			if err := store.SetPolicy(ws, v); err != nil {

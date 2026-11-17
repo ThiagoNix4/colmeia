@@ -12,14 +12,34 @@ import (
 	"sync"
 )
 
-// ConfigDir: ~/.config/colmeia (ou $XDG_CONFIG_HOME/colmeia).
+// Instance: identificador desta instalação ($COLMEIA_INSTANCE; padrão "colmeia").
+//
+// Separa tudo o que é por app: pasta de config, socket/pipe, lock, evento de parada.
+// Uma variante (fork) do Colmeia usa outro identificador e ganha um daemon só dela;
+// sem isso as duas cópias se conectam ao mesmo daemon e dividem workspaces, presets e cards.
+// O app Electron define o valor a partir do "name" do package.json.
+func Instance() string {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("COLMEIA_INSTANCE")))
+	var b strings.Builder
+	for _, r := range v {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			b.WriteRune(r)
+		}
+	}
+	if s := strings.Trim(b.String(), "."); s != "" {
+		return s
+	}
+	return "colmeia"
+}
+
+// ConfigDir: ~/.config/<instância> (ou $XDG_CONFIG_HOME/<instância>); padrão ~/.config/colmeia.
 func ConfigDir() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		h, _ := os.UserHomeDir()
 		base = filepath.Join(h, ".config")
 	}
-	return filepath.Join(base, "colmeia")
+	return filepath.Join(base, Instance())
 }
 
 func secretFile() string { return filepath.Join(ConfigDir(), "secret") }

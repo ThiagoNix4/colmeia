@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 // Statusline do Claude Code para o Colmeia.
-// Lê o JSON do stdin, grava os limites de uso em ~/.config/colmeia/usage/claude.json
+// Lê o JSON do stdin, grava os limites de uso em ~/.config/<instância>/usage/claude.json
 // e imprime uma linha curta (vira a statusline do card). Nunca lança: sempre exit 0.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+// instância herdada do card (padrão "colmeia"); mesma regra do daemon (auth.Instance)
+const instance =
+  (process.env.COLMEIA_INSTANCE || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '')
+    .replace(/^\.+|\.+$/g, '') || 'colmeia'
 const configBase = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
-const usageDir = path.join(configBase, 'colmeia', 'usage')
+const usageDir = path.join(configBase, instance, 'usage')
 const usageFile = path.join(usageDir, 'claude.json')
 
 function readStdin() {

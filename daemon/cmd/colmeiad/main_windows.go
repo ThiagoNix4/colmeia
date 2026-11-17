@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"colmeia/daemon/internal/auth"
 	"colmeia/daemon/internal/term"
 
 	"golang.org/x/sys/windows"
@@ -46,9 +47,10 @@ func clearPid(_ *os.File, pidf string) { _ = os.Remove(pidf) }
 
 func setupProcess() {}
 
-const stopEvent = `Local\colmeiad-stop`
+// stopEvent: um por instância (senão "--stop" de uma variante derruba o daemon da outra).
+func stopEvent() string { return `Local\` + auth.Instance() + `d-stop` }
 
-// defaultSock: named pipe `\\.\pipe\colmeia-<usuário>` (contrato).
+// defaultSock: named pipe `\\.\pipe\<instância>-<usuário>` (padrão: colmeia-<usuário>).
 func defaultSock() string {
 	name := os.Getenv("USERNAME")
 	if u, err := user.Current(); err == nil && u.Username != "" {
@@ -57,12 +59,12 @@ func defaultSock() string {
 			name = name[i+1:]
 		}
 	}
-	return `\\.\pipe\colmeia-` + name
+	return `\\.\pipe\` + auth.Instance() + `-` + name
 }
 
 // notifyStop: evento nomeado → SIGTERM no canal (shutdown graceful: flush, pid limpo).
 func notifyStop(ch chan<- os.Signal) {
-	p, _ := windows.UTF16PtrFromString(stopEvent)
+	p, _ := windows.UTF16PtrFromString(stopEvent())
 	ev, err := windows.CreateEvent(nil, 0, 0, p)
 	if err != nil {
 		return
@@ -81,7 +83,7 @@ func stopPid(pid int, pidf string) error {
 		f.Close()
 		return errors.New("não está rodando")
 	}
-	if p, err := windows.UTF16PtrFromString(stopEvent); err == nil {
+	if p, err := windows.UTF16PtrFromString(stopEvent()); err == nil {
 		if ev, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, p); err == nil {
 			_ = windows.SetEvent(ev)
 			_ = windows.CloseHandle(ev)
@@ -97,7 +99,13 @@ func stopPid(pid int, pidf string) error {
 	if !isColmeiad(pid) {
 		return errors.New("pid não é colmeiad")
 	}
-	return exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F").Run()
+	return hidden(exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F")).Run()
+}
+
+// hidden: sem janela de console piscando (o daemon roda sem console).
+func hidden(c *exec.Cmd) *exec.Cmd {
+	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	return c
 }
 
 func isColmeiad(pid int) bool {
@@ -121,7 +129,7 @@ func killChildren(infos []term.Info, hard bool) {
 	}
 	for _, i := range infos {
 		if i.Alive && i.Pid > 0 {
-			_ = exec.Command("taskkill", "/PID", strconv.Itoa(i.Pid), "/T", "/F").Run()
+			_ = hidden(exec.Command("taskkill", "/PID", strconv.Itoa(i.Pid), "/T", "/F")).Run()
 		}
 	}
 }

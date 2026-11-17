@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"colmeia/daemon/internal/auth"
+
 	"github.com/charmbracelet/x/vt"
 )
 
@@ -74,12 +76,7 @@ func (m *mgr) idLock(id string) *sync.Mutex {
 
 func New(opts Options) Manager {
 	if opts.HistoryDir == "" {
-		base := os.Getenv("XDG_CONFIG_HOME")
-		if base == "" {
-			h, _ := os.UserHomeDir()
-			base = filepath.Join(h, ".config")
-		}
-		opts.HistoryDir = filepath.Join(base, "colmeia", "history")
+		opts.HistoryDir = filepath.Join(auth.ConfigDir(), "history")
 	}
 	if opts.HistoryCap <= 0 {
 		opts.HistoryCap = 512 * 1024
@@ -115,16 +112,25 @@ func (m *mgr) Ensure(r SpawnReq) (string, Info, error) {
 	l.Lock()
 	defer l.Unlock()
 	if s := m.get(r.ID); s != nil {
-		if r.Cols > 0 && r.Rows > 0 {
-			m.Resize(r.ID, r.Cols, r.Rows)
+		if r.FreshBefore.IsZero() || !s.created.Before(r.FreshBefore) {
+			if r.Cols > 0 && r.Rows > 0 {
+				m.Resize(r.ID, r.Cols, r.Rows)
+			}
+			return s.snapshot()
 		}
-		return s.snapshot()
+		// sessão de antes do app reabrir: encerra (sem anunciar exit) e recria
+		m.mu.Lock()
+		delete(m.ss, r.ID)
+		m.mu.Unlock()
+		m.discard(s)
 	}
-	saved := m.readHistory(r.ID)
-	if saved != "" {
-		saved += historySeparator
+	var seed []byte
+	if r.NoHistory {
+		m.removeHistory(r.ID)
+	} else if saved := m.readHistory(r.ID); saved != "" {
+		seed = []byte(saved + historySeparator)
 	}
-	s, err := m.spawn(r, []byte(saved))
+	s, err := m.spawn(r, seed)
 	if err != nil {
 		return "", Info{}, err
 	}
@@ -436,7 +442,12 @@ func (s *session) terminate() {
 	}
 }
 
-func (m *mgr) Restart(id string) error {
+func (m *mgr) Restart(id string) error { return m.restart(id, nil) }
+
+// RestartWith: como Restart, mas com comando/ambiente novos (mantém tamanho e título atuais).
+func (m *mgr) RestartWith(r SpawnReq) error { return m.restart(r.ID, &r) }
+
+func (m *mgr) restart(id string, with *SpawnReq) error {
 	l := m.idLock(id)
 	l.Lock()
 	defer l.Unlock()
@@ -447,6 +458,10 @@ func (m *mgr) Restart(id string) error {
 	s.mu.Lock()
 	req, cols, rows, title := s.req, s.cols, s.rows, s.meta.Title
 	s.mu.Unlock()
+	if with != nil {
+		req = *with
+		req.FreshBefore = time.Time{}
+	}
 	m.mu.Lock()
 	delete(m.ss, id)
 	m.mu.Unlock()

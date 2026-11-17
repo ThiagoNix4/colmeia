@@ -8,6 +8,12 @@ type SpawnReq struct {
 	Args                            []string
 	Env                             map[string]string
 	Cols, Rows                      int
+	// FreshBefore: sessão viva criada antes deste instante é encerrada e recriada (o app foi
+	// reaberto e o card é um TUI que retoma a própria conversa, ex.: opencode). Zero = reaproveita.
+	FreshBefore time.Time
+	// NoHistory: não semeia o terminal com a saída da sessão anterior (o agente retoma a
+	// conversa sozinho; repetir a saída antiga duplicaria a tela).
+	NoHistory bool
 }
 
 type Info struct {
@@ -34,6 +40,7 @@ type Event struct {
 type Manager interface {
 	Ensure(r SpawnReq) (replay string, info Info, err error)
 	Restart(id string) error
+	RestartWith(r SpawnReq) error // Restart com comando/env remontados (ex.: retomar a conversa do agente)
 	Write(id string, data []byte) error
 	Send(id, text string, enter bool) bool
 	Key(id, key string) error

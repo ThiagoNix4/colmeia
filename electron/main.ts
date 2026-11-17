@@ -4,22 +4,24 @@ import fs from 'node:fs'
 import os from 'node:os'
 import { createHash } from 'node:crypto'
 import { DaemonClient } from './daemonClient'
+import { INSTANCE, PRODUCT_NAME, dataDir, daemonSocketPath } from './instance'
 import type { LinkEdge, NoteCard, Preset, SpawnRequest, UsageSettings, Workspace } from './types'
 
-// win32: named pipe por usuário; unix: socket em XDG_RUNTIME_DIR
-const socketPath =
-  process.env.COLMEIA_SOCK_PATH ||
-  (process.platform === 'win32'
-    ? `\\\\.\\pipe\\colmeia-${os.userInfo().username}`
-    : path.join(process.env.XDG_RUNTIME_DIR || os.tmpdir(), 'colmeia.sock'))
+// win32: named pipe por usuário e instância; unix: socket em XDG_RUNTIME_DIR (ver instance.ts)
+const socketPath = daemonSocketPath()
 const EXE = process.platform === 'win32' ? '.exe' : ''
+const APP_START = Date.now()
 // win32: Node.js costuma não estar instalado; cli/colmeia.cmd usa o próprio Colmeia.exe como Node
-// (ELECTRON_RUN_AS_NODE) via esta variável, herdada daemon → cards.
-if (process.platform === 'win32' && !process.env.COLMEIA_NODE) process.env.COLMEIA_NODE = process.execPath
+// (ELECTRON_RUN_AS_NODE) via esta variável, herdada daemon → cards. Sempre o executável DESTE app:
+// um valor herdado de outra instalação apontaria para o .exe errado.
+if (process.platform === 'win32') process.env.COLMEIA_NODE = process.execPath
 
-// Faz o GNOME associar a janela ao atalho colmeia.desktop (ícone na dock)
-app.setName('colmeia')
-app.setDesktopName('colmeia.desktop')
+// Perfil do Electron (localStorage, cache) e lock de instância única por instância: sem isso uma
+// variante abriria a janela da outra ou dividiria o localStorage.
+app.setName(INSTANCE)
+app.setPath('userData', path.join(app.getPath('appData'), INSTANCE))
+// Faz o GNOME associar a janela ao atalho <instância>.desktop (ícone na dock)
+app.setDesktopName(`${INSTANCE}.desktop`)
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -39,7 +41,7 @@ function createWindow() {
     width: 1500,
     height: 950,
     backgroundColor: '#0f1115',
-    title: 'Colmeia',
+    title: PRODUCT_NAME,
     icon: path.join(app.getAppPath(), 'assets/icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
@@ -66,9 +68,9 @@ const resDir = (name: string) => {
 }
 const unpacked = (p: string) => p.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep)
 
-/** Copia colmeiad+cli+docs p/ ~/.local/share/colmeia/<versão>/ (atômico: tmp + rename); reaproveita se já existe. */
+/** Copia colmeiad+cli+docs p/ ~/.local/share/<instância>/<versão>/ (atômico: tmp + rename); reaproveita se já existe. */
 function stageAppImage(bin: string, cli: string, docs: string) {
-  const base = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local/share'), 'colmeia')
+  const base = dataDir()
   // win32: o instalador sobrescreve o app com a mesma versão; sem o hash do binário a pasta antiga
   // (com o colmeiad velho) seria reaproveitada para sempre. Pasta nova → daemon novo é detectado.
   // win32: ConPTY moderno (conpty.dll + OpenConsole.exe) fica ao lado do colmeiad.exe; entra no hash.
@@ -130,7 +132,7 @@ function daemonMain() {
       cliDir = r.cli
       docsDir = r.docs
     } catch (e) {
-      dialog.showErrorBox('Colmeia', `Falha ao copiar o daemon do AppImage: ${e instanceof Error ? e.message : e}`)
+      dialog.showErrorBox(PRODUCT_NAME, `Falha ao copiar o daemon do AppImage: ${e instanceof Error ? e.message : e}`)
       app.exit(1)
     }
   }
@@ -141,7 +143,7 @@ function daemonMain() {
       buttons: ['Manter daemon atual', 'Reiniciar daemon (cards morrem)'],
       defaultId: 0,
       cancelId: 0,
-      title: 'Colmeia',
+      title: PRODUCT_NAME,
       message: `O daemon em execução (${running}) é diferente do instalado (${expected}).`
     })
     return r.response === 1
@@ -160,7 +162,7 @@ function daemonMain() {
   }
   let ready: Promise<void> = connectAttach()
   const fatal = (err: unknown) => {
-    dialog.showErrorBox('Colmeia', `Falha ao conectar ao daemon: ${err instanceof Error ? err.message : err}`)
+    dialog.showErrorBox(PRODUCT_NAME, `Falha ao conectar ao daemon: ${err instanceof Error ? err.message : err}`)
     app.exit(1)
   }
   ready.catch(fatal)
@@ -336,7 +338,15 @@ function daemonMain() {
     )
   })
 
-  ipcMain.handle('pty:ensure', (_e, req: SpawnRequest) => ensure(req))
+  // App reaberto: o primeiro ensure de cada card recria do zero a sessão que sobreviveu no daemon
+  // (conversa nova, sem histórico). Cards criados depois de abrir (ex.: workers do Gerente) não são
+  // afetados, porque nasceram depois de APP_START. A continuidade fica nas notas dos cards.
+  const fresh = new Set<string>()
+  ipcMain.handle('pty:ensure', (_e, req: SpawnRequest) => {
+    if (fresh.has(req.id)) return ensure(req)
+    fresh.add(req.id)
+    return ensure({ ...req, freshBefore: APP_START })
+  })
   ipcMain.handle('pty:restart', async (_e, id: string) => {
     known.delete(id) // sessão nova recomeça o contador de bytes
     const er = exitedReqs.get(id)
