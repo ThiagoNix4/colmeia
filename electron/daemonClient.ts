@@ -22,6 +22,8 @@ export class DaemonClient {
   private handlers = new Set<(ev: DaemonEvent) => void>()
   private closeHandlers = new Set<() => void>()
   attached = false
+  /** Versão do app: vai ao daemon por env no spawn e por ui.attach (atualiza daemon reaproveitado). */
+  appVersion = ''
 
   constructor(
     private readonly sockPath = daemonSocketPath(),
@@ -148,7 +150,7 @@ export class DaemonClient {
   private spawnDaemon() {
     fs.mkdirSync(configDir(), { recursive: true })
     const log = fs.openSync(path.join(configDir(), 'colmeiad.log'), 'a')
-    const child = spawn(this.binPath, this.spawnArgs, { detached: true, windowsHide: true, cwd: configDir(), stdio: ['ignore', log, log] })
+    const child = spawn(this.binPath, this.spawnArgs, { detached: true, windowsHide: true, cwd: configDir(), env: { ...process.env, COLMEIA_APP_VERSION: this.appVersion }, stdio: ['ignore', log, log] })
     child.on('error', () => {})
     child.unref()
     fs.closeSync(log)
@@ -244,7 +246,7 @@ export class DaemonClient {
   /** ui.attach: a partir daqui o daemon empurra eventos nesta conexão. */
   async attach(): Promise<{ socketPath: string; presetsPath: string; home: string }> {
     const secret = await this.readSecret()
-    const r = await this.call<{ socketPath: string; presetsPath: string; home: string }>('ui.attach', { secret })
+    const r = await this.call<{ socketPath: string; presetsPath: string; home: string }>('ui.attach', { secret, appVersion: this.appVersion })
     this.attached = true
     return r
   }

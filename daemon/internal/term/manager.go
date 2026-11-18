@@ -99,6 +99,7 @@ func (s *session) info() Info {
 	i.Alive = s.alive
 	i.ExitCode = s.exitCode
 	i.Persistent = true // o daemon sobrevive ao app
+	i.Created = s.created
 	if s.alive && s.proc != nil {
 		i.Pid = s.proc.Pid()
 	} else {

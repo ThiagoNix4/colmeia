@@ -5,8 +5,10 @@ import (
 	"errors"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"colmeia/daemon/internal/auth"
 	"colmeia/daemon/internal/links"
@@ -14,6 +16,9 @@ import (
 	"colmeia/daemon/internal/store"
 	"colmeia/daemon/internal/usage"
 )
+
+// daReplyRe: respostas de Device Attributes (ESC[?…c / ESC[>…c).
+var daReplyRe = regexp.MustCompile(`\x1b\[[?>][0-9;]*c`)
 
 // handle: ui.* só para conexões anexadas; o resto passa por caller + comandos do CLI.
 func (s *Server) handle(c *conn, cmd string, a Args) (any, error) {
@@ -51,6 +56,9 @@ func (s *Server) attach(c *conn, a Args) (any, error) {
 		return nil, errors.New("ui.attach: segredo inválido")
 	}
 	s.mu.Lock()
+	if v, _ := a["appVersion"].(string); v != "" {
+		s.cfg.AppVersion = v // daemon reaproveitado após update do app
+	}
 	if !c.ui.Load() {
 		c.ui.Store(true)
 		s.uis = append(s.uis, c)
@@ -105,6 +113,7 @@ func (s *Server) handleUI(cmd string, a Args) (any, error) {
 			return nil, err
 		}
 		s.mu.Lock()
+		s.attachAt[in.ID] = time.Now()
 		if _, ok := s.cardWs[in.ID]; !ok {
 			s.cardWs[in.ID] = s.curWs
 		}
@@ -118,6 +127,19 @@ func (s *Server) handleUI(cmd string, a Args) (any, error) {
 		return nil, t.Restart(id)
 	case "pty.write":
 		data, _ := a["data"].(string)
+		// causa do `[?1;2c` no prompt: o xterm.js do renderer responde ao DA (ESC[c) que o shell
+		// emitiu no boot (ao anexar/replay) e a resposta cai na entrada do shell. Nos primeiros
+		// segundos do card, descarta só respostas DA (nunca CPR/DSR, que os TUIs precisam).
+		// (vale também logo após cada attach/replay: o histórico reenvia o ESC[c do boot)
+		s.mu.Lock()
+		at := s.attachAt[id]
+		s.mu.Unlock()
+		if info, ok := t.Get(id); (ok && !info.Created.IsZero() && time.Since(info.Created) < 8*time.Second) || (!at.IsZero() && time.Since(at) < 8*time.Second) {
+			data = daReplyRe.ReplaceAllString(data, "")
+		}
+		if data == "" {
+			return nil, nil
+		}
 		_ = t.Write(id, []byte(data))
 		return nil, nil
 	case "pty.resize":
@@ -168,8 +190,8 @@ func (s *Server) handleUI(cmd string, a Args) (any, error) {
 		t.FlushAll()
 		return nil, nil
 	case "presets.get":
-		p := store.LoadPresets()
 		s.mu.Lock()
+		p := store.LoadPresets()
 		s.presets = p
 		s.mu.Unlock()
 		return p, nil
@@ -190,12 +212,16 @@ func (s *Server) handleUI(cmd string, a Args) (any, error) {
 		return store.ListWorkspaces(), nil
 	case "ws.load":
 		name, _ := a["name"].(string)
+		isNew := !store.WorkspaceExists(name)
 		w := store.LoadWorkspace(name)
 		s.mu.Lock()
 		s.curCwd, s.curWs = store.WorkspaceCwd(w), store.WorkspaceName(w)
 		cur := s.curWs
 		s.mu.Unlock()
 		s.syncCards(cur, w)
+		if isNew {
+			seedNotes(w)
+		}
 		links.SetEdges(links.FromStore(store.EdgesOf(w)))
 		s.watch.Watch(cur)
 		return w, nil

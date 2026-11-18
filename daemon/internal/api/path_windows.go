@@ -38,8 +38,16 @@ func freshPath(inherited string) string {
 	parts := []string{
 		regPath(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`),
 		regPath(registry.CURRENT_USER, `Environment`),
-		inherited,
 	}
+	// diretórios de CLIs de agentes que o registro às vezes não lista (npm global, opencode)
+	var extra []string
+	if ad := os.Getenv("APPDATA"); ad != "" {
+		extra = append(extra, filepath.Join(ad, "npm"))
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		extra = append(extra, filepath.Join(h, ".opencode", "bin"))
+	}
+	parts = append(parts, strings.Join(extra, string(os.PathListSeparator)), inherited)
 	seen := map[string]bool{}
 	var out []string
 	for _, p := range parts {

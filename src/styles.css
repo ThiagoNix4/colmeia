@@ -266,3 +266,6 @@ button.icon.danger:hover { color: var(--danger); }
 .edge-menu { position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; min-width: 160px; }
 .edge-menu button { text-align: left; background: none; border: 0; color: var(--text); padding: 6px 10px; border-radius: 6px; cursor: pointer; }
 .edge-menu button:hover { background: var(--border); }
+.link-banner { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 60; background: var(--panel); border: 1px solid #e8b04a; color: var(--text); padding: 6px 14px; border-radius: 8px; pointer-events: none; }
+.react-flow__node.link-src > * { outline: 2px solid #e8b04a; outline-offset: 2px; border-radius: 10px; }
+.canvas:has(.link-src) .react-flow__node { cursor: crosshair; }

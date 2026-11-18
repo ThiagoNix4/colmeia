@@ -1,11 +1,12 @@
 import { create } from 'zustand'
 import { addEdge, applyEdgeChanges, applyNodeChanges, type Edge, type EdgeChange, type Node, type NodeChange } from '@xyflow/react'
-import type { NoteCard, Preset, Workspace, WorkspaceEdge } from '../electron/types'
+import type { LayoutItem, NoteCard, Preset, Workspace, WorkspaceEdge } from '../electron/types'
 
 export type CardData = {
   preset: string
   title: string
   cwd: string
+  model?: string
   status: 'starting' | 'running' | 'exited'
   exitCode: number | null
 }
@@ -58,12 +59,14 @@ interface State {
   removeEdge: (id: string) => void
   reverseEdge: (id: string) => void
   setEdgeMode: (id: string, mode: EdgeMode) => void
-  addCard: (card: { id: string; preset: string; title: string; cwd: string }, pos: { x: number; y: number }) => void
+  addCard: (card: { id: string; preset: string; title: string; cwd: string; model?: string }, pos: { x: number; y: number }, size?: { width?: number; height?: number }) => void
   removeCard: (id: string) => void
   patchCard: (id: string, patch: Partial<CardData>) => void
   addNote: (note: NoteCard, pos: { x: number; y: number }) => void
   removeNote: (id: string) => void
   patchNote: (id: string, patch: Partial<NoteData>) => void
+  applyLayout: (cards: LayoutItem[], notes: LayoutItem[]) => void
+  linkFrom: string | null
   set: (s: Partial<State>) => void
 }
 
@@ -162,16 +165,27 @@ export const useStore = create<State>((set, get) => ({
       )
     })
   },
-  addCard: (card, pos) => {
+  linkFrom: null,
+  applyLayout: (cards, notes) => {
+    const ids = new Set(get().nodes.map((n) => n.id))
+    const changes: NodeChange<CanvasNode>[] = []
+    for (const it of [...cards, ...notes]) {
+      if (!ids.has(it.id)) continue
+      changes.push({ type: 'position', id: it.id, position: { x: it.x, y: it.y } })
+      changes.push({ type: 'dimensions', id: it.id, dimensions: { width: it.width, height: it.height }, setAttributes: true })
+    }
+    if (changes.length) get().onNodesChange(changes)
+  },
+  addCard: (card, pos, size) => {
     if (get().nodes.some((n) => n.id === card.id)) return
     const node: CardNode = {
       id: card.id,
       type: 'terminal',
       position: pos,
-      width: CARD_W,
-      height: CARD_H,
+      width: size?.width || CARD_W,
+      height: size?.height || CARD_H,
       dragHandle: '.card-header',
-      data: { preset: card.preset, title: card.title, cwd: card.cwd, status: 'starting', exitCode: null }
+      data: { preset: card.preset, title: card.title, cwd: card.cwd, ...(card.model ? { model: card.model } : {}), status: 'starting', exitCode: null }
     }
     set({ nodes: [...get().nodes.map((n) => ({ ...n, selected: false })), { ...node, selected: true }] })
   },
@@ -239,6 +253,7 @@ export function toWorkspace(s: State, viewport?: Workspace['viewport']): Workspa
         preset: n.data.preset,
         title: n.data.title,
         cwd: n.data.cwd,
+        ...(n.data.model ? { model: n.data.model } : {}),
         x: n.position.x,
         y: n.position.y,
         width: n.width ?? n.measured?.width ?? CARD_W,

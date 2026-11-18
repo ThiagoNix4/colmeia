@@ -3,6 +3,7 @@ package api
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -76,6 +77,34 @@ type spawnIn struct {
 	Rows   int    `json:"rows"`
 	// FreshBefore (ms epoch): o app abriu neste instante; sessão viva mais antiga recomeça do zero.
 	FreshBefore int64 `json:"freshBefore"`
+	// Model: sobrescreve o modelo do preset (claude: --model; opencode: -m → config).
+	Model string `json:"model"`
+}
+
+var (
+	modelOK   = regexp.MustCompile(`^[A-Za-z0-9._:/@\[\]-]+$`)
+	modelFlag = regexp.MustCompile(`\s(--model|-m)(\s+|=)\S+`)
+)
+
+// withModel troca/insere o modelo no comando de claude (--model) ou opencode (-m).
+func withModel(cmd, model string) string {
+	model = strings.TrimSpace(model)
+	f := strings.Fields(cmd)
+	if model == "" || !modelOK.MatchString(model) || len(f) == 0 {
+		return cmd
+	}
+	flag := ""
+	switch f[0] {
+	case "claude":
+		flag = "--model"
+	case "opencode":
+		flag = "-m"
+	default:
+		return cmd
+	}
+	t := strings.TrimLeft(cmd, " \t\r\n")
+	rest := modelFlag.ReplaceAllString(strings.TrimPrefix(t, f[0]), "")
+	return f[0] + " " + flag + " " + model + rest
 }
 
 // buildSpawn monta o SpawnReq (shell de login, comando do preset, env do card).
@@ -88,6 +117,11 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 		}
 	}
 	s.mu.Unlock()
+	if preset == nil {
+		if lp, ok := store.LegacyPreset(in.Preset); ok { // cards antigos claude-haiku/sonnet/opus
+			preset = &lp
+		}
+	}
 	shell, shellArgs := term.DefaultShell()
 	cwd := in.Cwd
 	home, _ := os.UserHomeDir()
@@ -98,11 +132,20 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 		cwd = home
 	}
 	args := shellArgs // unix: -l; windows: -NoLogo
-	ocConfig := "" // OPENCODE_CONFIG_CONTENT do card (modelo + instruções do Colmeia), se for opencode
-	agent := false // card de agente que retoma a própria conversa (sem replay de histórico cru)
+	ocConfig := ""    // OPENCODE_CONFIG_CONTENT do card (modelo + instruções do Colmeia), se for opencode
+	agent := false    // card de agente que retoma a própria conversa (sem replay de histórico cru)
 	restartOnReopen := false
+	if in.Model == "" {
+		s.mu.Lock()
+		in.Model = s.cardModel[in.ID]
+		s.mu.Unlock()
+		if in.Model == "" { // daemon reiniciado: lê do registro do card no workspace
+			in.Model = store.CardModel(in.ID)
+		}
+	}
 	if preset != nil && preset.Command != "" {
-		cmd := withClaudeSettings(strings.ReplaceAll(preset.Command, "{docs}", docsArg(s.cfg.DocsDir)), writeClaudeSettings(s.cfg.CliDir))
+		cmd := withModel(strings.ReplaceAll(preset.Command, "{docs}", docsArg(s.cfg.DocsDir)), in.Model)
+		cmd = withClaudeSettings(cmd, writeClaudeSettings(s.cfg.CliDir))
 		if c := claudeSessionArg(cmd, in.ID); c != cmd {
 			cmd, agent = c, true
 		}
@@ -133,6 +176,10 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 			}
 			args = []string{"-l", "-i", "-c", script}
 		}
+	} else if base := strings.ToLower(filepath.Base(shell)); runtime.GOOS == "windows" && (strings.HasPrefix(base, "pwsh") || strings.HasPrefix(base, "powershell")) {
+		// shell puro: PowerShell em UTF-8 (entrada/eco/saída), sem ruído visível
+		args = []string{"-NoLogo", "-NoExit", "-Command",
+			"$null=chcp 65001; [Console]::InputEncoding=[Console]::OutputEncoding=$OutputEncoding=New-Object System.Text.UTF8Encoding $false"}
 	}
 	env := map[string]string{}
 	for _, kv := range os.Environ() {
@@ -183,7 +230,7 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 	return req
 }
 
-// docsArg: no Windows (PowerShell) ' vira '' dentro de aspas simples.
+// docsArg: no Windows (PowerShell) ' vira ” dentro de aspas simples.
 func docsArg(d string) string {
 	if runtime.GOOS == "windows" {
 		return strings.ReplaceAll(d, "'", "''")

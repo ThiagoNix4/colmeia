@@ -27,12 +27,13 @@ import (
 type Args = map[string]any
 
 type Config struct {
-	Term      term.Manager
-	SockPath  string
-	DocsDir   string
-	CliDir    string
-	DaemonPid int
-	Version   string // hash do binário (ping)
+	Term       term.Manager
+	SockPath   string
+	DocsDir    string
+	CliDir     string
+	DaemonPid  int
+	Version    string // hash do binário (ping)
+	AppVersion string // versão do app (package.json), via --app-version
 }
 
 type Server struct {
@@ -49,7 +50,9 @@ type Server struct {
 	presets   []store.Preset
 	uis       []*conn
 	pendingUI map[string]*pendingReq
-	cardWs    map[string]string // card → workspace (H2)
+	cardWs    map[string]string    // card → workspace (H2)
+	cardModel map[string]string    // --model do spawn por card (reaplicado em restart/reabrir)
+	attachAt  map[string]time.Time // último pty.ensure por card (filtro de DA após replay)
 	ridSeq    atomic.Uint64
 
 	sendMu  sync.Mutex // serializa extração+envio de pty.data/exit (ordem)
@@ -82,7 +85,7 @@ type conn struct {
 }
 
 func New(cfg Config) *Server {
-	s := &Server{cfg: cfg, pendingUI: map[string]*pendingReq{}, pending: map[string]*chunk{}, cardWs: store.CardWorkspaces(), done: make(chan struct{})}
+	s := &Server{cfg: cfg, pendingUI: map[string]*pendingReq{}, pending: map[string]*chunk{}, cardWs: store.CardWorkspaces(), attachAt: map[string]time.Time{}, cardModel: map[string]string{}, done: make(chan struct{})}
 	s.presets = store.LoadPresets()
 	ws := store.LoadWorkspace("")
 	s.curWs, s.curCwd = store.WorkspaceName(ws), store.WorkspaceCwd(ws)

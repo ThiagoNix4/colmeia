@@ -17,7 +17,7 @@ import SmartEdge from './edges/SmartEdge'
 import Toolbar from './components/Toolbar'
 import BroadcastBar from './components/BroadcastBar'
 import { CARD_H, CARD_W, edgeMode, notesApi, toWorkspace, useStore, type CanvasNode, type CardNode, type NoteCard, type NoteNode as NoteNodeModel } from './store'
-import type { CanvasEvent, Workspace } from '../electron/types'
+import type { CanvasEvent, Preset, Workspace } from '../electron/types'
 
 const nodeTypes = { terminal: TerminalNode, note: NoteNode }
 const edgeTypes = { smart: SmartEdge }
@@ -65,6 +65,21 @@ export default function App() {
   const rf = useReactFlow()
   const rfRef = useRef(rf)
   rfRef.current = rf
+
+  /** Posição livre perto do centro da tela (ou ao lado de outro card), sem sobrepor cards. */
+  /** Posição sugerida pelo daemon, se estiver livre. */
+  const suggested = useCallback((it: { x?: number; y?: number }, w?: number, h?: number) => {
+    if (typeof it.x !== 'number' || typeof it.y !== 'number') return undefined
+    const p = { x: it.x, y: it.y }
+    const cw = w || CARD_W
+    const ch = h || CARD_H
+    const hit = useStore.getState().nodes.some((n) => {
+      const nw = n.width ?? n.measured?.width ?? CARD_W
+      const nh = n.height ?? n.measured?.height ?? CARD_H
+      return p.x < n.position.x + nw && p.x + cw > n.position.x && p.y < n.position.y + nh && p.y + ch > n.position.y
+    })
+    return hit ? undefined : p
+  }, [])
 
   /** Posição livre perto do centro da tela (ou ao lado de outro card), sem sobrepor cards. */
   const freeSpot = useCallback((nearId?: string) => {
@@ -115,7 +130,7 @@ export default function App() {
           width: c.width,
           height: c.height,
           dragHandle: '.card-header',
-          data: { preset: c.preset, title: c.title, cwd: c.cwd, status: 'starting', exitCode: null }
+          data: { preset: c.preset, title: c.title, cwd: c.cwd, ...(c.model ? { model: c.model } : {}), status: 'starting', exitCode: null }
         })
       ),
       ...notes.map(
@@ -225,12 +240,20 @@ export default function App() {
   const handleEvent = useCallback(
     (ev: CanvasEvent) => {
         const st = useStore.getState()
+        const pe = ev as unknown as { type: string; list?: Preset[] }
+        if (pe.type === 'presets' && pe.list) {
+          st.set({ presets: pe.list })
+          return
+        }
         switch (ev.type) {
           case 'addCard':
-            st.addCard(ev.card, freeSpot(ev.near))
+            st.addCard(ev.card, suggested(ev.card, ev.card.width, ev.card.height) ?? freeSpot(ev.near), ev.card)
             break
           case 'addNote':
-            st.addNote(ev.note, freeSpot(ev.near))
+            st.addNote(ev.note, suggested(ev.note, ev.note.width, ev.note.height) ?? freeSpot(ev.near))
+            break
+          case 'layout':
+            st.applyLayout(ev.cards ?? [], ev.notes ?? [])
             break
           case 'removeCard':
             st.removeCard(ev.id)
@@ -255,7 +278,7 @@ export default function App() {
           }
         }
     },
-    [freeSpot]
+    [freeSpot, suggested]
   )
   useEffect(
     () =>
@@ -402,6 +425,34 @@ export default function App() {
     (c: Connection) => connect(c.source, c.target, c.sourceHandle ?? undefined, c.targetHandle ?? undefined),
     [connect]
   )
+  const linkFrom = useStore((s) => s.linkFrom)
+  const [nodeMenu, setNodeMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const exitLink = useCallback(() => useStore.getState().set({ linkFrom: null }), [])
+  const onLinkClick = useCallback((id: string) => {
+    const st = useStore.getState()
+    const src = st.linkFrom
+    if (!src || src === id) return
+    const a = st.nodes.find((n) => n.id === src)
+    const b = st.nodes.find((n) => n.id === id)
+    if (!a || !b || (a.type === 'note' && b.type === 'note')) return
+    if (st.edges.some((e) => (e.source === src && e.target === id) || (e.source === id && e.target === src))) st.unlink(src, id)
+    else st.connect(src, id)
+  }, [])
+  useEffect(() => {
+    if (!linkFrom) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      exitLink()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [linkFrom, exitLink])
+  const shownNodes = useMemo(
+    () => (linkFrom ? nodes.map((n) => (n.id === linkFrom ? { ...n, className: 'link-src' } : n)) : nodes),
+    [nodes, linkFrom]
+  )
   const minimapColor = useMemo(() => {
     const map = new Map(presets.map((p) => [p.id, p.color]))
     return (n: CanvasNode) => (n.type === 'note' ? '#e8b04a' : map.get(n.data.preset) ?? '#8b93a7')
@@ -420,7 +471,7 @@ export default function App() {
       <div className="canvas">
         {ready && (
           <ReactFlow<CanvasNode>
-            nodes={nodes}
+            nodes={shownNodes}
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
@@ -458,7 +509,12 @@ export default function App() {
               e.preventDefault()
               setMenu({ id: edge.id, x: e.clientX, y: e.clientY })
             }}
-            onPaneClick={() => setMenu(null)}
+            onPaneClick={() => { setMenu(null); setNodeMenu(null); exitLink() }}
+            onNodeClick={(_e, n) => onLinkClick(n.id)}
+            onNodeContextMenu={(e, n) => {
+              e.preventDefault()
+              setNodeMenu({ id: n.id, x: e.clientX, y: e.clientY })
+            }}
             onMoveStart={() => setMenu(null)}
             isValidConnection={(c) => {
               const ns = useStore.getState().nodes
@@ -485,6 +541,12 @@ export default function App() {
           </div>
         )}
       </div>
+      {linkFrom && <div className="link-banner">Clique nos cards para ligar · Esc para sair</div>}
+      {nodeMenu && (
+        <div className="edge-menu" style={{ left: nodeMenu.x, top: nodeMenu.y }} onMouseLeave={() => setNodeMenu(null)}>
+          <button onClick={() => { useStore.getState().set({ linkFrom: nodeMenu.id }); setNodeMenu(null) }}>Criar link</button>
+        </div>
+      )}
       {menu && <EdgeMenu {...menu} onClose={() => setMenu(null)} />}
       <BroadcastBar />
     </div>

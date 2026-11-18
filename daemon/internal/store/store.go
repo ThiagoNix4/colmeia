@@ -28,6 +28,8 @@ type Preset struct {
 	Config    bool   `json:"configurable,omitempty"`
 	Tool      string `json:"tool,omitempty"`
 	Model     string `json:"model,omitempty"`
+	Args      string `json:"args,omitempty"`   // args extras anexados ao comando (built-ins editáveis)
+	Edited    bool   `json:"edited,omitempty"` // built-in com ajustes do usuário
 }
 
 // Workspace é mantido como mapa para não perder campos que só o renderer conhece.
@@ -142,7 +144,7 @@ const ManagerID = managerID
 
 var managerTools = []string{"claude", "opencode", "codex", "gemini"}
 var agentTools = []string{"claude", "opencode", "codex", "gemini", "custom"}
-var removedPresets = []string{"opencode-deepseek"}
+var removedPresets = []string{"opencode-deepseek", "claude-haiku", "claude-sonnet", "claude-opus"}
 var colorRe = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 func has(xs []string, s string) bool {
@@ -155,7 +157,16 @@ func has(xs []string, s string) bool {
 }
 
 // ManagerCommand: comando do Gerente para a ferramenta/modelo.
-func ManagerCommand(tool, model string) string {
+func ManagerCommand(tool, model string) string { return managerCommand(tool, model, "") }
+
+func managerCommand(tool, model, extra string) string {
+	if e := strings.TrimSpace(extra); e != "" {
+		return managerBase(tool, model) + " " + e
+	}
+	return managerBase(tool, model)
+}
+
+func managerBase(tool, model string) string {
 	o := `"$(cat '{docs}/ORCHESTRATOR.md')"`
 	if runtime.GOOS == "windows" {
 		bin := tool
@@ -180,21 +191,111 @@ func ManagerCommand(tool, model string) string {
 	case "gemini":
 		return "gemini" + mf("-m") + " -i " + o
 	}
-	return "claude" + mf("--model") + " --effort medium --append-system-prompt " + o
+	// sem subagents nativos: todo trabalho delegado roda em cards (o preset é regerado a cada load → migra o salvo)
+	return "claude --disallowedTools Agent" + mf("--model") + " --effort medium --append-system-prompt " + o
+}
+
+const reviewerID = "claude-reviewer"
+
+// ReviewerID: id do preset embutido Revisor.
+const ReviewerID = reviewerID
+
+// legacyWorkers: presets embutidos removidos; cards antigos ainda abrem (LegacyPreset).
+var legacyWorkers = map[string]string{"claude-haiku": "haiku", "claude-sonnet": "sonnet", "claude-opus": "opus"}
+
+// LegacyPreset: preset sintético para cards criados com os antigos claude-haiku/sonnet/opus.
+func LegacyPreset(id string) (Preset, bool) {
+	m, ok := legacyWorkers[id]
+	if !ok {
+		return Preset{}, false
+	}
+	return Preset{ID: id, Label: "Claude " + m, Color: "#98c379", KeepShell: true, Tool: "claude", Model: m, Command: WorkerCommand(m)}, true
+}
+
+// WorkerCommand: comando de uma operária Claude (modelo + regras do WORKER.md).
+func WorkerCommand(model string) string {
+	o := `"$(cat '{docs}/WORKER.md')"`
+	if runtime.GOOS == "windows" {
+		o = winPromptFile("claude", "WORKER.md")
+	}
+	return "claude --model " + model + " --append-system-prompt " + o
+}
+
+// reviewerCommand: Revisor (claude = regras do WORKER.md; outras ferramentas: comando simples).
+func reviewerCommand(tool, model, extra string) string {
+	var cmd string
+	if tool == "claude" {
+		m := model
+		if m == "" {
+			m = "opus"
+		}
+		cmd = WorkerCommand(m)
+	} else {
+		cmd = tool
+		if model != "" {
+			cmd += " -m " + model
+		}
+	}
+	if e := strings.TrimSpace(extra); e != "" {
+		cmd += " " + e
+	}
+	return cmd
 }
 
 func builtinShell() Preset {
 	return Preset{ID: "shell", Label: "Terminal", Color: "#8b93a7", Builtin: true}
 }
 
-func withManager(tool, model string) []Preset {
-	if !has(managerTools, tool) {
-		tool = "claude"
+func isBuiltinAgent(id string) bool { return id == managerID || id == reviewerID }
+
+// withBuiltins: shell + Gerente + Revisor; over = entradas salvas (só `edited` vale, exceto tool/model legados do Gerente).
+func withBuiltins(over map[string]map[string]any, userLabels []string) []Preset {
+	pick := func(id, label, color, tool, model string) Preset {
+		o := over[id]
+		edited, _ := o["edited"].(bool)
+		if id == managerID && o != nil { // legado: tool/model do Gerente sempre salvos
+			tool, model = asStr(o["tool"]), strings.TrimSpace(asStr(o["model"]))
+		}
+		p := Preset{ID: id, Builtin: true, KeepShell: true, Config: true}
+		if edited {
+			if t := asStr(o["tool"]); has(managerTools, t) {
+				tool = t
+			}
+			model = strings.TrimSpace(asStr(o["model"]))
+			if l := strings.TrimSpace(asStr(o["label"])); l != "" {
+				label = l
+			}
+			if c := asStr(o["color"]); colorRe.MatchString(c) {
+				color = c
+			}
+			p.Args = strings.TrimSpace(asStr(o["args"]))
+			p.Edited = true
+		}
+		if !has(managerTools, tool) {
+			tool = "claude"
+		}
+		p.Label, p.Color, p.Tool, p.Model = label, color, tool, model
+		if id == managerID {
+			p.Command = managerCommand(tool, model, p.Args)
+		} else {
+			p.Command = reviewerCommand(tool, model, p.Args)
+		}
+		return p
 	}
-	model = strings.TrimSpace(model)
-	mgr := Preset{ID: managerID, Label: "Gerente", Color: "#e8b04a", KeepShell: true, Builtin: true, Config: true,
-		Tool: tool, Command: ManagerCommand(tool, model), Model: model}
-	return []Preset{builtinShell(), mgr}
+	revLabel := "Revisor"
+	for _, l := range userLabels {
+		if strings.EqualFold(l, "Revisor") {
+			revLabel = "Revisor (padrão)" // não duplica o rótulo de um agente do usuário
+		}
+	}
+	return []Preset{builtinShell(),
+		pick(managerID, "Gerente", "#e8b04a", "claude", ""),
+		pick(reviewerID, revLabel, "#c678dd", "claude", "opus")}
+}
+
+// reservedIDs: ids dos presets embutidos (o usuário não os sobrescreve).
+func reservedIDs() map[string]bool {
+	return map[string]bool{"shell": true, managerID: true, reviewerID: true}
 }
 
 func asStr(v any) string { s, _ := v.(string); return s }
@@ -206,13 +307,14 @@ func LoadPresets() []Preset {
 	ensureDirs()
 	var raw []map[string]any
 	readJSON(presetsFile(), &raw)
-	seen := map[string]bool{"shell": true, managerID: true}
+	seen := reservedIDs()
 	var users []Preset
-	var saved map[string]any
+	over := map[string]map[string]any{}
+	var labels []string
 	for _, p := range raw {
 		id := asStr(p["id"])
-		if id == managerID {
-			saved = p
+		if isBuiltinAgent(id) {
+			over[id] = p
 			continue
 		}
 		if id == "" || seen[id] || has(removedPresets, id) {
@@ -220,8 +322,9 @@ func LoadPresets() []Preset {
 		}
 		seen[id] = true
 		users = append(users, presetFromMap(p))
+		labels = append(labels, asStr(p["label"]))
 	}
-	merged := append(withManager(asStr(saved["tool"]), asStr(saved["model"])), users...)
+	merged := append(withBuiltins(over, labels), users...)
 	// grava só se mudou
 	cur, _ := json.Marshal(merged)
 	rawB, _ := json.Marshal(raw)
@@ -246,15 +349,24 @@ func SavePresets(input []map[string]any) ([]Preset, error) {
 	if input == nil {
 		return nil, errors.New("lista de agentes inválida")
 	}
-	seen := map[string]bool{"shell": true, managerID: true}
+	seen := reservedIDs()
 	var users []Preset
-	var saved map[string]any
+	over := map[string]map[string]any{}
+	var labels []string
 	for _, raw := range input {
 		if raw == nil {
 			continue
 		}
-		if asStr(raw["id"]) == managerID {
-			saved = raw
+		if bid := asStr(raw["id"]); isBuiltinAgent(bid) {
+			if r, _ := raw["reset"].(bool); r {
+				continue // restaurar padrão
+			}
+			o := map[string]any{}
+			for k, v := range raw {
+				o[k] = v
+			}
+			delete(o, "edited")
+			over[bid] = o
 			continue
 		}
 		if b, _ := raw["builtin"].(bool); b {
@@ -284,9 +396,19 @@ func SavePresets(input []map[string]any) ([]Preset, error) {
 		if m := strings.TrimSpace(asStr(raw["model"])); m != "" {
 			p.Model = m
 		}
+		p.Args = strings.TrimSpace(asStr(raw["args"]))
 		users = append(users, p)
+		labels = append(labels, label)
 	}
-	full := append(withManager(asStr(saved["tool"]), asStr(saved["model"])), users...)
+	for _, d := range withBuiltins(nil, labels) { // só vale como ajuste o que difere do padrão
+		if o := over[d.ID]; o != nil {
+			lb := strings.TrimSpace(asStr(o["label"]))
+			defLabel := lb == d.Label || (d.ID == reviewerID && (lb == "Revisor" || lb == "Revisor (padrão)")) // rótulo padrão anterior não conta como edição
+			o["edited"] = !defLabel || asStr(o["color"]) != d.Color ||
+				asStr(o["tool"]) != d.Tool || strings.TrimSpace(asStr(o["model"])) != d.Model || strings.TrimSpace(asStr(o["args"])) != ""
+		}
+	}
+	full := append(withBuiltins(over, labels), users...)
 	writeJSON(presetsFile(), full)
 	return full, nil
 }
@@ -368,6 +490,20 @@ func EdgesOf(ws Workspace) []Edge {
 // WorkspaceStr/WorkspaceCwd: acessores do mapa.
 func WorkspaceName(ws Workspace) string { return asStr(ws["name"]) }
 func WorkspaceCwd(ws Workspace) string  { return asStr(ws["cwd"]) }
+
+// WorkspaceExists: já há arquivo (ou .bak) em disco para o nome (vazio = último, assume que existe).
+func WorkspaceExists(name string) bool {
+	if name == "" {
+		return true
+	}
+	f := filepath.Join(wsDir(), SafeName(name)+".json")
+	for _, p := range []string{f, f + ".bak"} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
+}
 
 func LoadWorkspace(name string) Workspace {
 	mu.Lock()
@@ -511,6 +647,20 @@ func LoadEdges(name string) []Edge {
 	return EdgesOf(readDisk(filepath.Join(wsDir(), name+".json")))
 }
 
+// CardModel: --model persistido no registro do card ("" se ausente ou card desconhecido).
+func CardModel(cardID string) string {
+	mu.Lock()
+	defer mu.Unlock()
+	for _, n := range listWs() {
+		for _, c := range cardsOf(readDisk(filepath.Join(wsDir(), n+".json"))) {
+			if asStr(c["id"]) == cardID {
+				return strings.TrimSpace(asStr(c["model"]))
+			}
+		}
+	}
+	return ""
+}
+
 // CardWorkspaces: id do card → nome do workspace, lido do disco (todos os ws).
 func CardWorkspaces() map[string]string {
 	mu.Lock()
@@ -613,7 +763,13 @@ func AddCard(name string, card map[string]any, near string) error {
 			}
 		}
 		c := map[string]any{"x": px, "y": py, "width": cw, "height": ch}
+		hx, hasX := card["x"].(float64)
+		hy, hasY := card["y"].(float64)
+		keepPos := hasX && hasY && !overlaps(hx, hy) // posição sugerida só vale se livre
 		for k, v := range card {
+			if !keepPos && (k == "x" || k == "y" || k == "width" || k == "height") {
+				continue
+			}
 			c[k] = v
 		}
 		ws["cards"] = append(cs, c)
@@ -697,8 +853,11 @@ func CardIDsOf(ws Workspace) []string {
 //     manda só uma instrução curta apontando o arquivo.
 //   - PS 5.1 / pwsh <7.3 não escapam `"` em args nativos: escapa no estilo CommandLineToArgvW
 //     (barras antes de aspas dobradas, `"`→`\"`, barras finais dobradas). 7.3+ já escapa sozinho.
-func winPromptArg(bin string) string {
-	const f = `'{docs}\ORCHESTRATOR.md'`
+func winPromptArg(bin string) string { return winPromptFile(bin, "ORCHESTRATOR.md") }
+
+// winPromptFile: igual a winPromptArg para qualquer arquivo de {docs} (ex.: WORKER.md).
+func winPromptFile(bin, name string) string {
+	f := `'{docs}\` + name + `'`
 	return `$(& { $t = Get-Content -Raw -Encoding UTF8 ` + f + `; ` +
 		`$c = Get-Command ` + bin + ` -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
 		`if ($c -and $c.Source -match '\.(cmd|bat)$') { 'Your operating instructions are in the file ' + ` + f + ` + '. Read it first and follow it as your system prompt.' } ` +
@@ -744,4 +903,167 @@ func SetPolicy(name, v string) error {
 		return errors.New("política inválida: use free, ask ou all")
 	}
 	return Mutate(name, func(ws Workspace) { ws["models"] = v })
+}
+
+// userMaps: agentes do usuário e Gerente salvo, no formato que SavePresets espera.
+func userMaps(cur []Preset) []map[string]any {
+	var out []map[string]any
+	for _, p := range cur {
+		if !isBuiltinAgent(p.ID) && p.Builtin {
+			continue
+		}
+		b, _ := json.Marshal(p)
+		var m map[string]any
+		_ = json.Unmarshal(b, &m)
+		out = append(out, m)
+	}
+	return out
+}
+
+var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// AddUserPreset cria um agente nomeado (mesmos campos do menu Agentes). cur = presets atuais.
+func AddUserPreset(cur []Preset, title, tool, model string, worker bool) ([]Preset, Preset, error) {
+	title = strings.TrimSpace(title)
+	model = strings.TrimSpace(model)
+	if title == "" {
+		return nil, Preset{}, errors.New("título obrigatório")
+	}
+	if tool == "" {
+		tool = "claude"
+	}
+	if tool == "custom" || !has(agentTools, tool) {
+		return nil, Preset{}, fmt.Errorf("--tool inválido: %s (claude|opencode|codex|gemini)", tool)
+	}
+	for _, p := range cur {
+		if strings.EqualFold(p.Label, title) || p.ID == title {
+			return nil, Preset{}, fmt.Errorf("já existe preset com esse nome: %s", p.ID)
+		}
+	}
+	cmd := tool
+	flag := map[string]string{"claude": "--model"}[tool]
+	if flag == "" {
+		flag = "-m"
+	}
+	if model != "" {
+		cmd += " " + flag + " " + model
+	}
+	if worker {
+		if tool != "claude" {
+			return nil, Preset{}, errors.New("--worker só vale para --tool claude")
+		}
+		if model == "" {
+			cmd = strings.Replace(WorkerCommand("sonnet"), "--model sonnet", "", 1)
+		} else {
+			cmd = WorkerCommand(model)
+		}
+	}
+	id := strings.Trim(slugRe.ReplaceAllString(strings.ToLower(title), "-"), "-")
+	if id == "" {
+		id = "agent"
+	}
+	ids := map[string]bool{}
+	for _, p := range cur {
+		ids[p.ID] = true
+	}
+	for base, n := id, 2; ids[id] || reservedIDs()[id]; n++ {
+		id = fmt.Sprintf("%s-%d", base, n)
+	}
+	np := map[string]any{"id": id, "label": title, "command": cmd, "color": "#e8b04a", "keepShell": true, "tool": tool}
+	if model != "" {
+		np["model"] = model
+	}
+	list, err := SavePresets(append(userMaps(cur), np))
+	if err != nil {
+		return nil, Preset{}, err
+	}
+	for _, p := range list {
+		if p.ID == id {
+			return list, p, nil
+		}
+	}
+	return list, Preset{ID: id}, nil
+}
+
+// RemoveUserPreset apaga um agente do usuário (título ou id); embutidos não.
+func RemoveUserPreset(cur []Preset, key string) ([]Preset, string, error) {
+	var target *Preset
+	for i := range cur {
+		if cur[i].ID == key || strings.EqualFold(cur[i].Label, key) {
+			target = &cur[i]
+			break
+		}
+	}
+	if target == nil {
+		return nil, "", fmt.Errorf("preset desconhecido: %s", key)
+	}
+	if target.Builtin {
+		return nil, "", fmt.Errorf("preset embutido não pode ser removido: %s", target.ID)
+	}
+	var keep []Preset
+	for _, p := range cur {
+		if p.ID != target.ID {
+			keep = append(keep, p)
+		}
+	}
+	list, err := SavePresets(userMaps(keep))
+	return list, target.ID, err
+}
+
+// SetCardRects grava x/y/width/height dos cards (tidy sem UI aberta).
+func SetCardRects(name string, rects map[string]struct{ X, Y, W, H float64 }) error {
+	return Mutate(name, func(ws Workspace) {
+		for _, c := range cardsOf(ws) {
+			if r, ok := rects[asStr(c["id"])]; ok {
+				c["x"], c["y"], c["width"], c["height"] = r.X, r.Y, r.W, r.H
+			}
+		}
+	})
+}
+
+// ResetBuiltinPreset restaura o padrão de um agente embutido (Gerente/Revisor), por id ou nome.
+func ResetBuiltinPreset(cur []Preset, key string) ([]Preset, string, error) {
+	var target *Preset
+	for i := range cur {
+		if cur[i].ID == key || strings.EqualFold(cur[i].Label, key) {
+			target = &cur[i]
+			break
+		}
+	}
+	if target == nil || !isBuiltinAgent(target.ID) {
+		return nil, "", fmt.Errorf("só Gerente/Revisor têm padrão a restaurar: %s", key)
+	}
+	maps := userMaps(cur)
+	for i := range maps {
+		if asStr(maps[i]["id"]) == target.ID {
+			maps[i]["reset"] = true
+		}
+	}
+	list, err := SavePresets(maps)
+	return list, target.ID, err
+}
+
+// CardRects: retângulos dos cards do workspace em disco (sem UI aberta), exceto skip.
+func CardRects(name, skip string) []struct{ X, Y, W, H float64 } {
+	mu.Lock()
+	defer mu.Unlock()
+	ws := readDisk(filepath.Join(wsDir(), SafeName(name)+".json"))
+	var out []struct{ X, Y, W, H float64 }
+	for _, c := range cardsOf(ws) {
+		if asStr(c["id"]) == skip {
+			continue
+		}
+		x, _ := c["x"].(float64)
+		y, _ := c["y"].(float64)
+		w, _ := c["width"].(float64)
+		h, _ := c["height"].(float64)
+		if w == 0 {
+			w = 640
+		}
+		if h == 0 {
+			h = 400
+		}
+		out = append(out, struct{ X, Y, W, H float64 }{x, y, w, h})
+	}
+	return out
 }

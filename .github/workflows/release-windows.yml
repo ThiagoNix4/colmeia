@@ -1,0 +1,50 @@
+# Pacotes Windows (instalador NSIS + portable) da release.
+# Mesmo gatilho do Release Linux: ao publicar uma release, compila e anexa à própria release.
+# Também dá para rodar à mão (Actions → "Release Windows" → Run workflow) informando a tag.
+name: Release Windows
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag da release, por exemplo v0.1.3"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+
+      - name: Dependências
+        run: npm ci
+
+      - name: Build (instalador + portable)
+        run: npm run dist:win -- --publish never
+
+      - name: Anexar à release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes ""
+          gh release upload "$TAG" dist/Colmeia-Setup-*.exe dist/Colmeia-*-portable.exe --clobber

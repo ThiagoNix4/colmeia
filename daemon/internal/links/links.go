@@ -170,6 +170,8 @@ var (
 	resumoLine = regexp.MustCompile(`^[\s\x{00A0}\x{FEFF}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}⏺•●*>\-│]*RESUMO:`)
 	lead       = regexp.MustCompile(`^[\s\x{00A0}\x{FEFF}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}⏺•●*>│]+`)
 	dash       = regexp.MustCompile(`^-\s*`)
+	// linha de prompt de shell (PS C:\x>, user@h:~$) que encerra o bloco RESUMO
+	promptLine = regexp.MustCompile(`^PS [A-Za-z]:\\[^>]*>\s*$|^\S+@\S+:\S*[$#%]\s*$|^[$%#>❯]\s*$`)
 )
 
 // LastResumo: último bloco RESUMO (até ~5 linhas) numa linha só.
@@ -186,7 +188,7 @@ func LastResumo(text string) (string, bool) {
 	var block []string
 	for j := i; j < len(lines) && len(block) < 5; j++ {
 		l := strings.TrimSpace(lead.ReplaceAllString(lines[j], ""))
-		if j > i && (l == "" || strings.Contains(l, "[from ")) {
+		if j > i && (l == "" || promptLine.MatchString(l) || strings.Contains(l, "[from ")) {
 			break
 		}
 		if l != "" {

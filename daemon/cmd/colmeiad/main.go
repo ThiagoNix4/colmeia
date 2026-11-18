@@ -41,6 +41,7 @@ func main() {
 		sock = flag.String("sock", "", "caminho do socket (padrão: $COLMEIA_SOCK_PATH ou $XDG_RUNTIME_DIR/<instância>.sock; instância = $COLMEIA_INSTANCE, padrão colmeia)")
 		docs = flag.String("docs", os.Getenv("COLMEIA_DOCS_DIR"), "pasta docs/ (ORCHESTRATOR.md)")
 		cli  = flag.String("cli", os.Getenv("COLMEIA_CLI_DIR"), "pasta cli/ (colmeia, statusline)")
+		appv = flag.String("app-version", os.Getenv("COLMEIA_APP_VERSION"), "versão do app (ping)")
 		stop = flag.Bool("stop", false, "para o daemon em execução (SIGTERM)")
 		ver  = flag.Bool("version", false, "imprime a versão (hash do binário) e sai")
 		cfgD = auth.ConfigDir()
@@ -109,7 +110,7 @@ func main() {
 	if a, err := filepath.Abs(*cli); err == nil && *cli != "" {
 		*cli = a
 	}
-	srv := api.New(api.Config{Term: tm, SockPath: *sock, DocsDir: *docs, CliDir: *cli, DaemonPid: os.Getpid(), Version: version})
+	srv := api.New(api.Config{Term: tm, SockPath: *sock, DocsDir: *docs, CliDir: *cli, DaemonPid: os.Getpid(), Version: version, AppVersion: *appv})
 	if err := srv.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "socket:", err)
 		os.Exit(1)

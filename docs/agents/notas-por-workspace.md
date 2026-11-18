@@ -19,9 +19,11 @@ colmeia note write <ref> "..."   # sobrescreve
 ## Convenções
 - Uma nota por tarefa/frente, título curto. Comece lendo a nota do workspace; termine atualizando (resultado, arquivos, próximos passos).
 - Conhecimento reutilizável vai para `docs/agents/` (versionado); o específico do trabalho fica na nota. Não duplique: referencie.
+- `Melhorias Colmeia`: limitações novas do app (só se houver), `AAAA-MM-DD: limitação → sintoma`.
 - Workspace atual: seletor no canto do app, ou `~/.config/colmeia/state.json` (`last`). O nome do arquivo é sanitizado (`[^\w.-]+` → `_`).
 
 ## Idioma/estilo (economia de token)
+Agente ↔ agente e notas de agente: inglês, sempre. Gerente → usuário: idioma da última mensagem do usuário.
 Inglês telegráfico: é o idioma mais barato no tokenizer do Claude (pt-br ~+30–50% tokens; chinês/japonês não economizam, ~1+ token por caractere) e cortar gramática rende mais que trocar de idioma.
 - Sem artigos, cortesia, frases completas. Fragmentos, `chave: valor`, listas.
 - Símbolos: `→` causa/próximo, `=` é, `✓` feito, `✗` falhou/não, `~` aprox., `+`/`-` add/remover.

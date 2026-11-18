@@ -287,7 +287,10 @@ func (s *Server) handleCLI(from, cmd string, a Args) (any, error) {
 	ws := s.callerWs(from)
 	switch cmd {
 	case "ping":
-		return Args{"pong": "pong", "version": s.cfg.Version, "cliDir": s.cfg.CliDir, "docsDir": s.cfg.DocsDir, "instance": auth.Instance()}, nil
+		s.mu.Lock()
+		av := s.cfg.AppVersion
+		s.mu.Unlock()
+		return Args{"pong": "pong", "version": s.cfg.Version, "appVersion": av, "cliDir": s.cfg.CliDir, "docsDir": s.cfg.DocsDir, "instance": auth.Instance()}, nil
 	case "policy":
 		if v, ok := a["set"].(string); ok {
 			if err := store.SetPolicy(ws, v); err != nil {
@@ -303,6 +306,71 @@ func (s *Server) handleCLI(from, cmd string, a Args) (any, error) {
 			out = append(out, Args{"id": p.ID, "label": p.Label, "command": p.Command})
 		}
 		return out, nil
+	case "preset.new":
+		if err := s.activeOnly(from); err != nil {
+			return nil, err
+		}
+		title, err := str(a["title"], "title")
+		if err != nil {
+			return nil, err
+		}
+		tool, _ := a["tool"].(string)
+		model, _ := a["model"].(string)
+		if model != "" && !modelOK.MatchString(strings.TrimSpace(model)) {
+			return nil, fmt.Errorf("modelo inválido: %s", model)
+		}
+		worker, _ := a["worker"].(bool)
+		s.mu.Lock()
+		list, p, err := store.AddUserPreset(s.presets, title, tool, model, worker)
+		if err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+		s.presets = list
+		s.mu.Unlock()
+		s.emit(Args{"type": "presets", "list": list}) // fora do lock: emit pega s.mu
+		return Args{"id": p.ID, "label": p.Label, "command": p.Command}, nil
+	case "preset.rm":
+		if err := s.activeOnly(from); err != nil {
+			return nil, err
+		}
+		key, err := str(a["id"], "id")
+		if err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		list, id, err := store.RemoveUserPreset(s.presets, key)
+		if err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+		s.presets = list
+		s.mu.Unlock()
+		s.emit(Args{"type": "presets", "list": list})
+		return Args{"id": id, "removed": true}, nil
+	case "tidy":
+		if err := s.activeOnly(from); err != nil {
+			return nil, err
+		}
+		return s.tidy(), nil
+	case "preset.reset":
+		if err := s.activeOnly(from); err != nil {
+			return nil, err
+		}
+		key, err := str(a["id"], "id")
+		if err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		list, id, err := store.ResetBuiltinPreset(s.presets, key)
+		if err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
+		s.presets = list
+		s.mu.Unlock()
+		s.emit(Args{"type": "presets", "list": list})
+		return Args{"id": id, "reset": true}, nil
 	case "list":
 		cs := s.cards(a["all"] == true)
 		if from != "" {
@@ -350,9 +418,30 @@ func (s *Server) handleCLI(from, cmd string, a Args) (any, error) {
 				label = p.Label
 			}
 		}
+		if label == "" { // aceita o título do preset (ex.: Apis-A)
+			var hits []string
+			for _, p := range s.presets {
+				if strings.EqualFold(p.Label, presetID) {
+					hits = append(hits, p.ID)
+					label = p.Label
+				}
+			}
+			if len(hits) > 1 {
+				s.mu.Unlock()
+				return nil, fmt.Errorf("preset ambíguo: %s (%s)", presetID, strings.Join(hits, ", "))
+			}
+			if len(hits) == 1 {
+				presetID = hits[0]
+			}
+		}
 		s.mu.Unlock()
 		if label == "" {
 			return nil, fmt.Errorf("preset desconhecido: %s. Disponíveis: %s", presetID, strings.Join(ids, ", "))
+		}
+		model, _ := a["model"].(string)
+		model = strings.TrimSpace(model)
+		if model != "" && !modelOK.MatchString(model) {
+			return nil, fmt.Errorf("modelo inválido: %s", model)
 		}
 		id := newCardID()
 		title, _ := a["title"].(string)
@@ -372,12 +461,23 @@ func (s *Server) handleCLI(from, cmd string, a Args) (any, error) {
 				return nil, err
 			}
 		}
-		_, info, err := t.Ensure(s.buildSpawn(spawnIn{ID: id, Preset: presetID, Title: title, Cwd: cwd, Cols: 110, Rows: 32}))
+		if model != "" {
+			s.mu.Lock()
+			s.cardModel[id] = model
+			s.mu.Unlock()
+		}
+		_, info, err := t.Ensure(s.buildSpawn(spawnIn{ID: id, Preset: presetID, Title: title, Cwd: cwd, Cols: 110, Rows: 32, Model: model}))
 		if err != nil {
 			return nil, err
 		}
 		s.setCardWs(id, s.workspace())
 		card := Args{"id": id, "preset": presetID, "title": title, "cwd": info.Cwd}
+		if model != "" {
+			card["model"] = model
+		}
+		if r, ok := s.cardSlot(id); ok { // posição sugerida na grade (UI valida colisão)
+			card["x"], card["y"], card["width"], card["height"] = r.X, r.Y, r.W, r.H
+		}
 		noUI := s.noUI()
 		if noUI {
 			s.persist(store.AddCard(s.workspace(), card, near))
@@ -475,17 +575,46 @@ func (s *Server) handleCLI(from, cmd string, a Args) (any, error) {
 		}
 		return Args{"id": id, "text": text}, nil
 	case "wait":
-		id, err := s.resolveCard(a["id"])
-		if err != nil {
-			return nil, err
+		var refs []any
+		if arr, ok := a["ids"].([]any); ok {
+			refs = arr
 		}
-		if err := s.need(from, id); err != nil {
-			return nil, err
+		if len(refs) == 0 {
+			refs = []any{a["id"]}
 		}
+		var ids []string
+		for _, r := range refs {
+			id, err := s.resolveCard(r)
+			if err != nil {
+				return nil, err
+			}
+			if err := s.need(from, id); err != nil {
+				return nil, err
+			}
+			ids = append(ids, id)
+		}
+		// idle/timeout em segundos (§0); idleMs/timeoutMs aceitos de CLIs antigas
 		idle := time.Duration(numArg(a, "idleMs", 5000)) * time.Millisecond
+		if v, ok := a["idle"]; ok && v != nil {
+			idle = time.Duration(numArg(a, "idle", 5) * float64(time.Second))
+		}
 		timeout := time.Duration(numArg(a, "timeoutMs", 10*60_000)) * time.Millisecond
-		ok, waited := t.WaitIdle(id, idle, timeout)
-		return Args{"id": id, "idle": ok, "waitedMs": waited.Milliseconds()}, nil
+		if v, ok := a["timeout"]; ok && v != nil {
+			timeout = time.Duration(numArg(a, "timeout", 600) * float64(time.Second))
+		}
+		anyMode := a["mode"] == "any"
+		out := make(chan Args, len(ids))
+		for _, id := range ids {
+			go func(id string) { out <- waitOne(t, id, idle, timeout) }(id)
+		}
+		results := []Args{}
+		for range ids {
+			results = append(results, <-out)
+			if anyMode {
+				break // o restante termina sozinho (canal com buffer)
+			}
+		}
+		return Args{"results": results}, nil
 	case "link", "unlink":
 		if err := s.activeOnly(from); err != nil {
 			return nil, err
@@ -568,9 +697,13 @@ func (s *Server) handleCLI(from, cmd string, a Args) (any, error) {
 		if b, ok := a["body"].(string); ok {
 			body = &b
 		}
+		slot := noteSlot(len(notes.List(ws)))
 		note, err := notes.Create(ws, title, body)
 		if err != nil {
 			return nil, err
+		}
+		if n2, err := notes.Update(ws, note.ID, map[string]any{"x": slot.X, "y": slot.Y, "width": slot.W, "height": slot.H}); err == nil {
+			note = n2
 		}
 		ev := Args{"type": "addNote", "note": note}
 		if near != "" {

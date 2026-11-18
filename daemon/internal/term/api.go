@@ -24,6 +24,8 @@ type Info struct {
 	Persistent             bool
 	// Offset: bytes totais emitidos até o fim do replay devolvido por Ensure (0 nos demais usos).
 	Offset int64
+	// Created: instante em que a sessão foi criada.
+	Created time.Time
 }
 
 // Event.Kind: "data" | "exit" | "title" | "resync".

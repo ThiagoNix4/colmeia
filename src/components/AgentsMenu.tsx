@@ -36,7 +36,9 @@ interface Draft {
   keepShell: boolean
   rules: boolean // regras do Colmeia (só Claude Code)
   manual: boolean // usuário editou o comando à mão
-  manager?: boolean // editando o Gerente (só ferramenta + modelo)
+  manager?: boolean // editando o Gerente: comando gerenciado pelo daemon
+  builtin?: boolean // Gerente/Revisor: editável, com restaurar padrão
+  args: string
 }
 
 // comando do Gerente (espelha managerCommand em electron/store.ts)
@@ -51,7 +53,7 @@ const managerPreview = (tool: AgentTool, model: string) => {
 }
 
 const emptyDraft = (): Draft => ({
-  id: null, label: '', tool: 'claude', model: '', command: buildCommand('claude', '', true), color: COLORS[0], keepShell: true, rules: true, manual: false
+  id: null, label: '', tool: 'claude', model: '', command: buildCommand('claude', '', true), color: COLORS[0], keepShell: true, rules: true, manual: false, args: ''
 })
 
 export default function AgentsMenu({ onNewCard }: Props) {
@@ -88,7 +90,9 @@ export default function AgentsMenu({ onNewCard }: Props) {
   }
 
   const builtins = presets.filter((p) => p.builtin && p.id !== 'shell')
+  const overrides = (p: Preset): Preset[] => presets.filter((x) => x.builtin && x.configurable).map((x) => (x.id === p.id ? p : x))
   const mine = presets.filter((p) => !p.builtin)
+  const cfg = presets.filter((p) => p.builtin && p.configurable)
 
   const persist = async (list: Preset[]) => {
     try {
@@ -105,11 +109,13 @@ export default function AgentsMenu({ onNewCard }: Props) {
   const edit = (p: Preset) => {
     if (p.configurable) {
       const t = p.tool && p.tool !== 'custom' ? p.tool : 'claude'
+      const manager = p.id === 'claude-manager'
       setConfirmId(null)
       setError('')
       setDraft({
-        id: p.id, label: p.label, tool: t, model: p.model ?? '', command: managerPreview(t, p.model ?? ''), color: p.color,
-        keepShell: true, rules: false, manual: false, manager: true
+        id: p.id, label: p.label, tool: t, model: p.model ?? '', color: p.color, args: p.args ?? '',
+        command: manager ? managerPreview(t, p.model ?? '') : p.command,
+        keepShell: true, rules: false, manual: false, manager, builtin: true
       })
       return
     }
@@ -119,7 +125,7 @@ export default function AgentsMenu({ onNewCard }: Props) {
     const rules = tool === 'claude' && p.command.includes(RULES_MARK)
     setDraft({
       id: p.id, label: p.label, tool, model: p.model ?? '', command: p.command, color: p.color,
-      keepShell: p.keepShell ?? true, rules,
+      keepShell: p.keepShell ?? true, rules, args: '',
       manual: tool === 'custom' || p.command !== buildCommand(tool, p.model ?? '', rules)
     })
   }
@@ -129,6 +135,7 @@ export default function AgentsMenu({ onNewCard }: Props) {
       if (!d) return d
       const next = { ...d, ...changes }
       if (next.manager) next.command = managerPreview(next.tool, next.model)
+      else if (next.builtin) next.command = buildCommand(next.tool, next.model, next.tool === 'claude')
       else if (!next.manual && ('tool' in changes || 'model' in changes || 'rules' in changes) && next.tool !== 'custom') {
         next.command = buildCommand(next.tool, next.model, next.rules)
       }
@@ -137,12 +144,16 @@ export default function AgentsMenu({ onNewCard }: Props) {
 
   const save = async () => {
     if (!draft) return
-    if (draft.manager) {
+    if (draft.builtin) {
       const g = presets.find((p) => p.id === draft.id)
       if (!g) return
-      const item: Preset = { ...g, tool: draft.tool, model: draft.model.trim() || undefined }
+      const label = draft.label.trim()
+      if (!label) return setError('Dê um nome ao agente.')
+      const item: Preset = {
+        ...g, label, color: draft.color, tool: draft.tool, model: draft.model.trim() || undefined, args: draft.args.trim() || undefined
+      }
       const rest = presets.filter((p) => !p.builtin)
-      if (await persist([item, ...rest])) {
+      if (await persist([...overrides(item), ...rest])) {
         setDraft(null)
         setError('')
       }
@@ -156,7 +167,17 @@ export default function AgentsMenu({ onNewCard }: Props) {
       tool: draft.tool, model: draft.tool === 'custom' ? undefined : draft.model.trim() || undefined
     }
     const list = draft.id ? mine.map((p) => (p.id === id ? item : p)) : [...mine, item]
-    if (await persist(list)) {
+    if (await persist([...cfg, ...list])) {
+      setDraft(null)
+      setError('')
+    }
+  }
+
+  const resetBuiltin = async () => {
+    const g = draft && presets.find((p) => p.id === draft.id)
+    if (!g) return
+    const rest = presets.filter((p) => !p.builtin)
+    if (await persist([...overrides({ ...g, reset: true }), ...rest])) {
       setDraft(null)
       setError('')
     }
@@ -165,7 +186,7 @@ export default function AgentsMenu({ onNewCard }: Props) {
   const remove = async (id: string) => {
     setConfirmId(null)
     setError('')
-    await persist(mine.filter((p) => p.id !== id))
+    await persist([...cfg, ...mine.filter((p) => p.id !== id)])
   }
 
   const launch = (id: string) => {
@@ -210,7 +231,7 @@ export default function AgentsMenu({ onNewCard }: Props) {
         <div className="agents-pop">
           {draft ? (
             <form className="agent-form" onSubmit={(e) => { e.preventDefault(); void save() }}>
-              {!draft.manager && (
+              {(!draft.manager || draft.builtin) && (
                 <label>Nome
                   <input autoFocus value={draft.label} placeholder="Claude Sonnet" onChange={(e) => patch({ label: e.target.value })} />
                 </label>
@@ -225,27 +246,33 @@ export default function AgentsMenu({ onNewCard }: Props) {
                   <input value={draft.model} placeholder={tool?.example} onChange={(e) => patch({ model: e.target.value })} />
                 </label>
               )}
-              {draft.tool === 'claude' && !draft.manager && (
+              {draft.tool === 'claude' && !draft.builtin && (
                 <label className="check">
                   <input type="checkbox" checked={draft.rules} onChange={(e) => patch({ rules: e.target.checked })} />
                   Regras do Colmeia (economia de token)
                 </label>
               )}
+              {draft.builtin && (
+                <label>Argumentos extras
+                  <input value={draft.args} placeholder="--flag valor" onChange={(e) => patch({ args: e.target.value })} />
+                </label>
+              )}
               <label>Comando
-                <input value={draft.command} readOnly={draft.manager} placeholder="comando a executar" onChange={(e) => patch({ command: e.target.value, manual: true })} />
+                <input value={draft.command} readOnly={draft.manager || draft.builtin} placeholder="comando a executar" onChange={(e) => patch({ command: e.target.value, manual: true })} />
               </label>
-              {!draft.manager && <div className="agent-colors">
+              {(!draft.manager || draft.builtin) && <div className="agent-colors">
                 {COLORS.map((c) => (
                   <button key={c} type="button" className={`swatch${draft.color === c ? ' on' : ''}`} style={{ background: c }} onClick={() => patch({ color: c })} />
                 ))}
                 <input type="color" value={draft.color} onChange={(e) => patch({ color: e.target.value })} />
               </div>}
-              {!draft.manager && <label className="check">
+              {!draft.builtin && <label className="check">
                 <input type="checkbox" checked={draft.keepShell} onChange={(e) => patch({ keepShell: e.target.checked })} />
                 manter shell ao sair
               </label>}
               {error && <div className="agent-error">{error}</div>}
               <div className="agent-form-actions">
+                {draft.builtin && <button type="button" className="ghost" onClick={() => void resetBuiltin()}>Restaurar padrão</button>}
                 <button type="button" className="ghost" onClick={() => { setDraft(null); setError('') }}>Cancelar</button>
                 <button type="submit" className="primary">Salvar</button>
               </div>

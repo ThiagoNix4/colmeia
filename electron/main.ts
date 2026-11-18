@@ -155,6 +155,7 @@ function daemonMain() {
     { cli: cliDir, docs: docsDir },
     askRestart
   )
+  dc.appVersion = app.getVersion()
   let info = { socketPath, presetsPath: '', home: os.homedir() }
   const connectAttach = async () => {
     await dc.connect()

@@ -17,6 +17,12 @@ export interface Preset {
   tool?: AgentTool
   /** Só para o formulário reabrir preenchido. */
   model?: string
+  /** Argumentos extras anexados ao comando. */
+  args?: string
+  /** Built-in com edições do usuário. */
+  edited?: boolean
+  /** Só em presets.save: restaura o padrão do built-in. */
+  reset?: boolean
 }
 
 export interface CardMeta {
@@ -24,6 +30,8 @@ export interface CardMeta {
   preset: string
   title: string
   cwd: string
+  /** --model do spawn (persistido no card; ausente = modelo do preset). */
+  model?: string
 }
 
 export interface CardInfo extends CardMeta {
@@ -98,9 +106,11 @@ export interface NotesIndex {
   notes: NoteCard[]
 }
 
+export interface LayoutItem { id: string; x: number; y: number; width: number; height: number }
+
 /** Eventos main -> renderer disparados pela API local */
 export type CanvasEvent =
-  | { type: 'addCard'; card: CardMeta; near?: string }
+  | { type: 'addCard'; card: CardMeta & { x?: number; y?: number; width?: number; height?: number }; near?: string }
   | { type: 'removeCard'; id: string }
   | { type: 'addNote'; note: NoteCard; near?: string }
   | { type: 'removeNote'; id: string }
@@ -108,6 +118,7 @@ export type CanvasEvent =
   | { type: 'unlink'; source: string; target: string }
   | { type: 'note-changed'; id: string; mtime: number }
   | { type: 'focusCard'; id: string }
+  | { type: 'layout'; cards: LayoutItem[]; notes: LayoutItem[] }
 
 /** Medidor de uso por agente de IA */
 export interface UsageWindow {

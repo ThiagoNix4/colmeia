@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 // Instância (ver electron/instance.ts): cada variante do Colmeia tem seu daemon; os cards herdam COLMEIA_INSTANCE.
 const INSTANCE =
@@ -34,14 +35,17 @@ const HELP = `colmeia — controla o Colmeia
 
   colmeia list                                  lista os cards
   colmeia presets                               lista os presets disponíveis
-  colmeia spawn <preset> [--title T] [--cwd D] [--near ID]
+  colmeia preset new <título> --tool claude|opencode --model <m> [--worker] | preset rm <id> | preset reset <id>
+  colmeia tidy                                  arruma cards + notas numa grade (Gerente, operárias, notas)
+  colmeia spawn <preset> [--title T] [--cwd D] [--near ID] [--model M]
                                                cria um card (imprime o id)
   colmeia send <id> <texto...> [--no-enter]     escreve no card e aperta Enter
   colmeia key <id> <ctrl-c|esc|enter|tab|up|down>  envia uma tecla
   colmeia broadcast <texto...> [--ids a,b]      envia para vários (padrão: todos menos você)
   colmeia read <id> [--lines N] [--raw]         últimas N linhas (padrão 40), compactas
   colmeia result <id> [--lines N]               só o trecho a partir do último RESUMO: (compacto)
-  colmeia wait <id> [--idle 5] [--timeout 600]  espera o card ficar ocioso (segundos)
+  colmeia wait <id...> [--all|--any] [--idle 5] [--timeout 600]
+                                               espera cards ficarem ociosos (padrão: --all)
   colmeia ask <id> <texto...> [--idle 8] [--lines N] [--raw] [--result]
                                                send + wait + read numa tacada só (--result: como result)
   colmeia link <a> <b> [--pipe]                 aresta a→b: a comanda b (card↔nota: ler/escrever). --pipe: encaminha o RESUMO de a para b
@@ -52,6 +56,8 @@ const HELP = `colmeia — controla o Colmeia
   colmeia detach <id>                           tira o card da tela mantendo a sessão viva (não é kill)
   colmeia screenshot [arquivo.png]              captura a janela do canvas
   colmeia agents                                inventário de agentes/modelos no PC + policy
+  colmeia agents set <modelo> free|paid|auto     fixa o custo de um modelo (auto remove o override)
+  colmeia --version | -v | version              versão do app
   colmeia policy [free|ask|all]                 mostra/define a política de modelos do workspace
   colmeia whoami                                id do card atual
 ${NOTE_HELP}
@@ -63,7 +69,7 @@ Use "-" como texto para ler do stdin.
 read/ask/result removem ruído de TUI (linhas vazias repetidas, molduras, rodapés); --raw devolve a tela crua.`
 
 // Flags sem valor: não consomem o argumento seguinte.
-const BOOL_FLAGS = new Set(['pipe', 'all', 'raw', 'result', 'json', 'file', 'enter'])
+const BOOL_FLAGS = new Set(['pipe', 'all', 'any', 'raw', 'result', 'json', 'file', 'enter', 'worker'])
 
 const KEYS = { 'ctrl-c': '\x03', 'ctrl-d': '\x04', esc: '\x1b', enter: '\r', tab: '\t', up: '\x1b[A', down: '\x1b[B', left: '\x1b[D', right: '\x1b[C' }
 
@@ -109,8 +115,12 @@ function call(cmd, args = {}) {
 
 async function readText(parts) {
   if (parts.length === 1 && parts[0] === '-') {
-    let s = ''
-    for await (const c of process.stdin) s += c
+    // Concatena bytes antes de decodificar: decodificar por chunk quebra caracteres UTF-8
+    // multibyte no meio do stream (mojibake). Também remove BOM (U+FEFF) no início.
+    const chunks = []
+    for await (const c of process.stdin) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c))
+    let s = Buffer.concat(chunks).toString('utf8')
+    if (s.charCodeAt(0) === 0xfeff) s = s.slice(1)
     if (process.platform === 'win32') s = s.replace(/\r\n/g, '\n')
     return s.replace(/\n$/, '')
   }
@@ -124,6 +134,10 @@ const RESULT_LINES = 200
 const FOOTER = [/auto mode on/i, /shift\+tab to cycle/i, /esc to interrupt/i, /ctrl\+p commands/i, /\? for shortcuts/i, /^\s*tip:/i]
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u
 const RESUMO_LINE = /^[\s⏺•●*>\-│]*RESUMO:/u
+// O que encerra o bloco RESUMO: linha vazia, rodapé de TUI ou linha de prompt.
+const SHELL_PROMPT = /^PS [A-Za-z]:\\[^>]*>\s*$|^\S+@\S+:\S*[$#%]\s*$|^[$%#>❯]\s*$/u
+const RESUMO_END = [/^\s*$/, SHELL_PROMPT, /▣/u, /^\s*build\s+·/i, /^\s*[>$❯]\s*$/u, /^\s*·/u]
+const RESUMO_MAX_LINES = 8
 
 // Remove ruído de TUI: espaços à direita, molduras (linhas sem letra/dígito),
 // rodapés conhecidos e linhas vazias repetidas (máx. 1 seguida).
@@ -143,16 +157,26 @@ function compact(text) {
   return out.join('\n')
 }
 
-// Imprime só do último RESUMO: em diante; sem RESUMO:, as últimas 15 linhas e um aviso.
+// Imprime só o bloco do último RESUMO: — no máximo 8 linhas, parando em linha vazia,
+// rodapé de TUI (Build ·, ▣) ou linha de prompt. Sem RESUMO,: últimas 15 linhas + aviso.
 function printResult(text) {
   const all = compact(text).split('\n')
   let idx = -1
   all.forEach((l, i) => {
     if (RESUMO_LINE.test(l)) idx = i
   })
-  if (idx >= 0) return console.log(all.slice(idx).join('\n'))
-  console.error('[sem RESUMO: na tela; mostrando as últimas 15 linhas]')
-  console.log(all.slice(-15).join('\n'))
+  if (idx < 0) {
+    console.error('[sem RESUMO: na tela; mostrando as últimas 15 linhas]')
+    return console.log(all.slice(-15).join('\n'))
+  }
+  const out = []
+  for (const line of all.slice(idx)) {
+    if (out.length >= RESUMO_MAX_LINES) break
+    if (RESUMO_END.some((re) => re.test(line))) break
+    out.push(line)
+  }
+  while (out.length > 1 && SHELL_PROMPT.test(out[out.length - 1])) out.pop()
+  console.log(out.join('\n'))
 }
 
 // Inventário de agentes (colmeia agents)
@@ -164,40 +188,83 @@ function cacheFile() {
   return path.join(os.tmpdir(), `colmeia-agents-${u}.json`)
 }
 
+// Cache compartilhado: inventário de agentes e overrides de custo vivem no mesmo arquivo.
+function readCache() {
+  try { return JSON.parse(fs.readFileSync(cacheFile(), 'utf8')) } catch { return {} }
+}
+function writeCache(c) {
+  const f = cacheFile()
+  try { fs.writeFileSync(f + '.tmp', JSON.stringify(c)); fs.renameSync(f + '.tmp', f) } catch {}
+}
+
+// `colmeia agents set <modelo> free|paid` persiste o override no cache.
+function setCost(model, value) {
+  const c = readCache()
+  c._cost = c._cost || {}
+  if (value === 'auto') delete c._cost[model.toLowerCase()]
+  else c._cost[model.toLowerCase()] = value
+  writeCache(c)
+}
+
 function costOf(tool, model) {
   const m = `${tool} ${model}`.toLowerCase()
-  if (/[-:]free\b/.test(m)) return 'free'
+  const ov = (readCache()._cost || {})[(model || '').toLowerCase()]
+  if (ov === 'free' || ov === 'paid') return ov
+  // opencode-go/*-free, qualquer *free e opencode/big-pickle são grátis.
+  if (/free|big-pickle/.test(m)) return 'free'
   if (tool === 'ollama' || /\b(local|lmstudio|llama\.cpp)\b/.test(m)) return 'local'
   if (/anthropic|openai|google|claude|codex|gemini|gpt|opus|sonnet|\bo[134]\b/.test(m)) return 'paid'
   return '?'
 }
 
+// Windows: cmd.exe /d /s /c roda .cmd/.bat sem shell:true (evita DEP0190).
+// O /s faz o cmd aceitar o comando entre aspas; arg com espaço é quotada.
+function cmdArg(a) {
+  const s = String(a)
+  return /^[\w./\\:=+@-]+$/.test(s) ? s : `"${s.replace(/"/g, '\\"')}"`
+}
+
 function run(bin, args, timeout = 10000) {
-  // Windows: shim .cmd/.bat só roda via shell
   const file = whichBin(bin) || bin
-  const shell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)
-  const cmd = shell ? `"${file}"` : file
-  return new Promise((resolve) => execFile(cmd, args, { timeout, windowsHide: true, shell }, (e, out) => resolve(e ? '' : String(out))))
+  let command = file
+  let cmdArgs = args
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)) {
+    command = process.env.ComSpec || 'cmd.exe'
+    cmdArgs = ['/d', '/s', '/c', `"${[file, ...args].map(cmdArg).join(' ')}"`]
+  }
+  return new Promise((resolve) =>
+    execFile(command, cmdArgs, { timeout, windowsHide: true, windowsVerbatimArguments: command !== file }, (e, out) => resolve(e ? '' : String(out)))
+  )
+}
+
+// PATH + %APPDATA%\npm + ~/.opencode/bin (shims npm/opencode costumam morar fora do PATH do card).
+function binDirs() {
+  const dirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean)
+  const home = os.homedir()
+  if (process.platform === 'win32') {
+    const appdata = process.env.APPDATA || (home && path.join(home, 'AppData', 'Roaming'))
+    if (appdata) dirs.push(path.join(appdata, 'npm'))
+  }
+  if (home) dirs.push(path.join(home, '.opencode', 'bin'))
+  return dirs
 }
 
 function whichBin(bin) {
   const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : ['']
-  for (const d of (process.env.PATH || '').split(path.delimiter))
-    for (const x of exts) if (d && fs.existsSync(path.join(d, bin + x))) return path.join(d, bin + x)
+  for (const d of binDirs())
+    for (const x of exts) if (fs.existsSync(path.join(d, bin + x))) return path.join(d, bin + x)
   return ''
 }
 
 const onPath = (bin) => !!whichBin(bin)
 
 async function cached(key, ttlMs, fn) {
-  const CACHE = cacheFile()
-  let c = {}
-  try { c = JSON.parse(fs.readFileSync(CACHE, 'utf8')) } catch {}
+  const c = readCache()
   if (c[key] && Date.now() - c[key].t < ttlMs) return c[key].v
   const v = await fn()
   if (!v) return v // não guarda falha/vazio
   c[key] = { t: Date.now(), v }
-  try { fs.writeFileSync(CACHE + '.tmp', JSON.stringify(c)); fs.renameSync(CACHE + '.tmp', CACHE) } catch {}
+  writeCache(c)
   return v
 }
 
@@ -207,8 +274,9 @@ async function agents() {
   const add = (tool, model, preset = '-') => {
     const k = `${tool}|${model || '-'}`
     const r = seen.get(k)
-    if (r) { if (r[3] === '-') r[3] = preset; return }
-    const row = [tool, model || '-', costOf(tool, model || ''), preset]
+    if (r) { if (r[4] === '-') r[4] = preset; return }
+    const exe = tool === 'shell' ? '-' : whichBin(tool) || '✗'
+    const row = [tool, model || '-', costOf(tool, model || ''), exe, preset]
     seen.set(k, row)
     rows.push(row)
   }
@@ -233,12 +301,36 @@ async function agents() {
       if (n) add('ollama', n)
     }
   }
-  const w = [0, 1, 2].map((i) => Math.max(...rows.map((r) => r[i].length)))
-  for (const r of rows) console.log(`${r[0].padEnd(w[0])}  ${r[1].padEnd(w[1])}  ${r[2].padEnd(w[2])}  ${r[3]}`)
+  const w = [0, 1, 2, 3].map((i) => Math.max(...rows.map((r) => r[i].length)))
+  for (const r of rows) console.log(`${r[0].padEnd(w[0])}  ${r[1].padEnd(w[1])}  ${r[2].padEnd(w[2])}  ${r[3].padEnd(w[3])}  ${r[4]}`)
   console.log(`policy: ${await call('policy').catch(() => 'ask (default)')}`)
 }
 
 const secs = (v, d) => Math.round((v === undefined || v === true ? d : Number(v)) * 1000)
+
+// `idle`/`timeout` vão em segundos (ver §0); idleMs/timeoutMs mantidos para daemons antigos.
+function waitArgs(ids, flags, dIdle, dTimeout) {
+  return {
+    ids,
+    id: ids[0],
+    mode: flags.any ? 'any' : 'all',
+    idle: flags.idle === undefined ? dIdle : Number(flags.idle),
+    timeout: flags.timeout === undefined ? dTimeout : Number(flags.timeout),
+    idleMs: secs(flags.idle, dIdle),
+    timeoutMs: secs(flags.timeout, dTimeout),
+  }
+}
+
+// Normaliza a resposta do wait: nova ({results}) ou legada ({idle, waitedMs}).
+function waitResults(r, ids) {
+  if (Array.isArray(r?.results)) return r.results
+  return [{
+    id: r?.id ?? ids[0],
+    title: r?.id ?? ids[0],
+    status: r?.idle ? 'ok' : 'timeout',
+    seconds: Math.round((r?.waitedMs ?? 0) / 1000),
+  }]
+}
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2)
@@ -251,6 +343,19 @@ async function main() {
     case '-h':
     case '--help':
       return console.log(HELP)
+    case '--version':
+    case '-v':
+    case 'version': {
+      const dir = path.dirname(fileURLToPath(import.meta.url))
+      for (const rel of ['../package.json', '../../package.json', '../app/package.json', '../app.asar/package.json']) {
+        try {
+          const v = JSON.parse(fs.readFileSync(path.join(dir, rel), 'utf8'))
+          if (v.version && /colmeia/i.test(v.name || 'colmeia')) return console.log(v.version)
+        } catch {}
+      }
+      const r = await call('ping')
+      return console.log(r.appVersion ? `${r.appVersion} (${r.version})` : r.version)
+    }
     case 'whoami':
       return console.log(self ?? '(fora do Colmeia)')
     case 'list': {
@@ -263,8 +368,16 @@ async function main() {
         )
       return
     }
-    case 'agents':
+    case 'agents': {
+      if (pos[0] === 'set') {
+        const model = pos[1]
+        const value = pos[2]
+        if (!model || !['free', 'paid', 'auto'].includes(value)) throw new Error('uso: colmeia agents set <modelo> free|paid|auto')
+        setCost(model, value)
+        return console.log(`${model}: ${value}`)
+      }
       return agents()
+    }
     case 'policy': {
       if (pos[0] && !['free', 'ask', 'all'].includes(pos[0])) throw new Error('uso: colmeia policy [free|ask|all]')
       return console.log(await call('policy', pos[0] ? { set: pos[0] } : {}))
@@ -277,8 +390,22 @@ async function main() {
         console.log(`${p.id.padEnd(20)} ${String(p.label ?? '').padEnd(14)} ${bin}${model ? ' ' + model : ''}`)
       }
       return
+    case 'preset': {
+      const use = 'uso: colmeia preset new <título> --tool claude|opencode --model <m> [--worker] | preset rm <id> | preset reset <id>'
+      if (pos[0] === 'new' && pos[1]) {
+        const r = await call('preset.new', { title: pos.slice(1).join(' '), tool: flags.tool, model: flags.model, worker: flags.worker === true })
+        return console.log(r.id)
+      }
+      if (pos[0] === 'rm' && pos[1]) { await call('preset.rm', { id: pos.slice(1).join(' ') }); return }
+      if (pos[0] === 'reset' && pos[1]) { await call('preset.reset', { id: pos.slice(1).join(' ') }); return }
+      throw new Error(use)
+    }
+    case 'tidy': {
+      const r = await call('tidy')
+      return console.log(`ok: ${r.cards} cards, ${r.notes} notas`)
+    }
     case 'spawn': {
-      const r = await call('spawn', { preset: pos[0], title: flags.title, cwd: flags.cwd ? path.resolve(flags.cwd) : undefined, near: flags.near ?? self })
+      const r = await call('spawn', { preset: pos[0], title: flags.title, cwd: flags.cwd ? path.resolve(flags.cwd) : undefined, near: flags.near ?? self, model: flags.model })
       return console.log(r.id)
     }
     case 'send':
@@ -305,17 +432,37 @@ async function main() {
       return printResult(r.text)
     }
     case 'wait': {
-      const r = await call('wait', { id: pos[0], idleMs: secs(flags.idle, 5), timeoutMs: secs(flags.timeout, 600) })
-      console.log(r.idle ? `ocioso após ${Math.round(r.waitedMs / 1000)}s` : `timeout após ${Math.round(r.waitedMs / 1000)}s (ainda trabalhando)`)
-      process.exitCode = r.idle ? 0 : 2
+      const ids = pos.slice()
+      if (!ids.length) throw new Error('uso: colmeia wait <id...> [--all|--any] [--idle N] [--timeout N]')
+      const results = waitResults(await call('wait', waitArgs(ids, flags, 5, 600)), ids)
+      let bad = false
+      for (const r of results) {
+        const title = r.title || r.id
+        const s = Math.round(r.seconds ?? 0)
+        if (r.status === 'ok') {
+          console.log(`${title}: ok após ${s}s`)
+        } else if (r.status === 'error') {
+          bad = true
+          console.log(`${title}: ERRO após ${s}s${r.lastLine ? ' — ' + r.lastLine : ''}`)
+        } else if (r.status === 'exited') {
+          if (r.exitCode !== 0) bad = true
+          console.log(r.exitCode === undefined || r.exitCode === null ? `${title}: saiu` : `${title}: saiu (code ${r.exitCode})`)
+        } else if (r.status === 'timeout') {
+          bad = true
+          console.log(`${title}: timeout`)
+        } else {
+          console.log(`${title}: ${r.status} após ${s}s`)
+        }
+      }
+      process.exitCode = bad ? 1 : 0
       return
     }
     case 'ask': {
       const id = pos[0]
       await call('send', { id, text: await readText(pos.slice(1)) })
       await new Promise((r) => setTimeout(r, 1500))
-      const w = await call('wait', { id, idleMs: secs(flags.idle, 8), timeoutMs: secs(flags.timeout, 900) })
-      if (!w.idle) console.error(`[timeout após ${Math.round(w.waitedMs / 1000)}s, card ainda trabalhando]`)
+      const w = waitResults(await call('wait', waitArgs([id], flags, 8, 900)), [id])[0]
+      if (w.status !== 'ok') console.error(`[${w.status} após ${w.seconds ?? 0}s, card pode não ter terminado]`)
       if (flags.result) {
         const r = await call('read', { id, lines: flags.lines ? Number(flags.lines) : RESULT_LINES })
         return printResult(r.text)
