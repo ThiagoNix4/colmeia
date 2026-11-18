@@ -185,7 +185,7 @@ func managerBase(tool, model string) string {
 	switch tool {
 	case "opencode":
 		// sem --prompt: ORCHESTRATOR.md entra como instrução de sistema no spawn (api/opencode.go)
-		return "opencode" + mf("-m")
+		return "opencode" + mf("mini -m")
 	case "codex":
 		return "codex" + mf("-m") + " " + o
 	case "gemini":
@@ -233,6 +233,9 @@ func reviewerCommand(tool, model, extra string) string {
 	} else {
 		cmd = tool
 		if model != "" {
+			if tool == "opencode" {
+				cmd += " mini"
+			}
 			cmd += " -m " + model
 		}
 	}
@@ -394,6 +397,11 @@ func SavePresets(input []map[string]any) ([]Preset, error) {
 			p.Tool = t
 		}
 		if m := strings.TrimSpace(asStr(raw["model"])); m != "" {
+			if p.Tool == "opencode" {
+				if err := ValidOpencodeModel(m); err != nil {
+					return nil, fmt.Errorf("agente %q: %w", label, err)
+				}
+			}
 			p.Model = m
 		}
 		p.Args = strings.TrimSpace(asStr(raw["args"]))
@@ -940,12 +948,20 @@ func AddUserPreset(cur []Preset, title, tool, model string, worker bool) ([]Pres
 			return nil, Preset{}, fmt.Errorf("já existe preset com esse nome: %s", p.ID)
 		}
 	}
+	if tool == "opencode" {
+		if err := ValidOpencodeModel(model); err != nil {
+			return nil, Preset{}, err
+		}
+	}
 	cmd := tool
 	flag := map[string]string{"claude": "--model"}[tool]
 	if flag == "" {
 		flag = "-m"
 	}
 	if model != "" {
+		if tool == "opencode" {
+			cmd += " mini"
+		}
 		cmd += " " + flag + " " + model
 	}
 	if worker {
@@ -1066,4 +1082,15 @@ func CardRects(name, skip string) []struct{ X, Y, W, H float64 } {
 		out = append(out, struct{ X, Y, W, H float64 }{x, y, w, h})
 	}
 	return out
+}
+
+var opencodeModelRe = regexp.MustCompile(`^[^/\s#]+/[^\s#]+(#\S+)?$`)
+
+// ValidOpencodeModel: o opencode só aceita provider/model[#variant] (ex.: opencode-go/gpt-6-luna).
+func ValidOpencodeModel(m string) error {
+	m = strings.TrimSpace(m)
+	if m == "" || opencodeModelRe.MatchString(m) {
+		return nil
+	}
+	return fmt.Errorf("modelo opencode inválido %q: use provider/modelo[#variante] (ex.: opencode-go/gpt-6-luna; veja `opencode models`)", m)
 }

@@ -33,6 +33,10 @@ const api = {
     onFlush: (cb: () => void) => on('app:flush', cb),
     flushed: () => ipcRenderer.send('app:flushed')
   },
+  opencode: {
+    /** ids provider/modelo de `opencode models` */
+    models: (): Promise<string[]> => ipcRenderer.invoke('opencode:models')
+  },
   presets: {
     get: (): Promise<Preset[]> => ipcRenderer.invoke('presets:get'),
     /** Recebe só os agentes do usuário; devolve a lista completa (builtins primeiro). */

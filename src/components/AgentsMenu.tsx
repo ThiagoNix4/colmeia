@@ -6,9 +6,10 @@ interface Props {
   onNewCard: (presetId: string) => void
 }
 
-const TOOLS: { id: AgentTool; label: string; bin: string; flag: string; example: string }[] = [
+const TOOLS: { id: AgentTool; label: string; bin: string; flag: string; example: string; help?: string }[] = [
   { id: 'claude', label: 'Claude Code', bin: 'claude', flag: '--model', example: 'sonnet, opus, haiku' },
-  { id: 'opencode', label: 'opencode', bin: 'opencode', flag: '-m', example: 'anthropic/claude-sonnet-4' },
+  { id: 'opencode', label: 'opencode', bin: 'opencode', flag: '-m', example: 'opencode/big-pickle',
+    help: 'Formato provedor/modelo, nome exato de `opencode models`. Ex.: opencode/big-pickle (OpenCode Zen, normal/grátis) e opencode-go/kimi-k3 (plano OpenCode Go).' },
   { id: 'codex', label: 'Codex', bin: 'codex', flag: '-m', example: 'gpt-5-codex' },
   { id: 'gemini', label: 'Gemini CLI', bin: 'gemini', flag: '-m', example: 'gemini-2.5-pro' },
   { id: 'custom', label: 'Personalizado', bin: '', flag: '', example: '' }
@@ -22,7 +23,8 @@ const buildCommand = (tool: AgentTool, model: string, rules = false) => {
   const t = TOOLS.find((x) => x.id === tool)
   if (!t || !t.bin) return ''
   const m = model.trim()
-  const base = m ? `${t.bin} ${t.flag} ${m}` : t.bin
+  // opencode 2.x: TUI com modelo = `opencode mini -m <modelo>` (`opencode -m` dá "Unrecognized flag")
+  const base = m ? (tool === 'opencode' ? `opencode mini -m ${m}` : `${t.bin} ${t.flag} ${m}`) : t.bin
   return tool === 'claude' && rules ? `${base} ${RULES_FLAG}` : base
 }
 
@@ -46,11 +48,15 @@ const managerPreview = (tool: AgentTool, model: string) => {
   const O = `"$(cat '{docs}/ORCHESTRATOR.md')"`
   const m = model.trim()
   // opencode: ORCHESTRATOR.md vai como instrução de sistema (sem mensagem inicial, sem gastar tokens)
-  if (tool === 'opencode') return `opencode${m ? ` -m ${m}` : ''}`
+  if (tool === 'opencode') return m ? `opencode mini -m ${m}` : 'opencode'
   if (tool === 'codex') return `codex${m ? ` -m ${m}` : ''} ${O}`
   if (tool === 'gemini') return `gemini${m ? ` -m ${m}` : ''} -i ${O}`
   return `claude${m ? ` --model ${m}` : ''} --effort medium --append-system-prompt ${O}`
 }
+
+// opencode só aceita provider/modelo[#variante] (vazio = padrão do opencode)
+const validOcModel = (m: string) => !m.trim() || /^[^/\s#]+\/[^\s#]+(#\S+)?$/.test(m.trim())
+const OC_MODEL_MSG = 'Modelo opencode deve ser provider/modelo (ex.: opencode-go/gpt-6-luna). Escolha na lista.'
 
 const emptyDraft = (): Draft => ({
   id: null, label: '', tool: 'claude', model: '', command: buildCommand('claude', '', true), color: COLORS[0], keepShell: true, rules: true, manual: false, args: ''
@@ -123,10 +129,12 @@ export default function AgentsMenu({ onNewCard }: Props) {
     setConfirmId(null)
     setError('')
     const rules = tool === 'claude' && p.command.includes(RULES_MARK)
+    // presets antigos `opencode -m X` migram para `opencode mini -m X`
+    const cmd = tool === 'opencode' ? p.command.replace(/^(\s*opencode)\s+(?:-m|--model)(?:\s+|=)/, '$1 mini -m ') : p.command
     setDraft({
-      id: p.id, label: p.label, tool, model: p.model ?? '', command: p.command, color: p.color,
+      id: p.id, label: p.label, tool, model: p.model ?? '', command: cmd, color: p.color,
       keepShell: p.keepShell ?? true, rules, args: '',
-      manual: tool === 'custom' || p.command !== buildCommand(tool, p.model ?? '', rules)
+      manual: tool === 'custom' || cmd !== buildCommand(tool, p.model ?? '', rules)
     })
   }
 
@@ -149,6 +157,7 @@ export default function AgentsMenu({ onNewCard }: Props) {
       if (!g) return
       const label = draft.label.trim()
       if (!label) return setError('Dê um nome ao agente.')
+      if (draft.tool === 'opencode' && !validOcModel(draft.model)) return setError(OC_MODEL_MSG)
       const item: Preset = {
         ...g, label, color: draft.color, tool: draft.tool, model: draft.model.trim() || undefined, args: draft.args.trim() || undefined
       }
@@ -161,6 +170,7 @@ export default function AgentsMenu({ onNewCard }: Props) {
     }
     const label = draft.label.trim()
     if (!label) return setError('Dê um nome ao agente.')
+    if (draft.tool === 'opencode' && !validOcModel(draft.model)) return setError(OC_MODEL_MSG)
     const id = draft.id ?? `agent-${Date.now().toString(36)}`
     const item: Preset = {
       id, label, command: draft.command.trim(), color: draft.color, keepShell: draft.keepShell,
@@ -221,6 +231,14 @@ export default function AgentsMenu({ onNewCard }: Props) {
   )
 
   const tool = TOOLS.find((t) => t.id === draft?.tool)
+  const [ocModels, setOcModels] = useState<string[]>([])
+  const wantOc = draft?.tool === 'opencode'
+  useEffect(() => {
+    if (!wantOc) return
+    let live = true
+    window.canvas.opencode.models().then((m) => live && setOcModels(m)).catch(() => {})
+    return () => { live = false }
+  }, [wantOc])
 
   return (
     <div className="agents" ref={root}>
@@ -243,7 +261,9 @@ export default function AgentsMenu({ onNewCard }: Props) {
               </label>
               {draft.tool !== 'custom' && (
                 <label>Modelo
-                  <input value={draft.model} placeholder={tool?.example} onChange={(e) => patch({ model: e.target.value })} />
+                  <input value={draft.model} placeholder={tool?.example} list={draft.tool === 'opencode' ? 'oc-models' : undefined} onChange={(e) => patch({ model: e.target.value })} />
+                  {draft.tool === 'opencode' && <datalist id="oc-models">{ocModels.map((m) => <option key={m} value={m} />)}</datalist>}
+                  {tool?.help && <small className="hint">{tool.help}</small>}
                 </label>
               )}
               {draft.tool === 'claude' && !draft.builtin && (

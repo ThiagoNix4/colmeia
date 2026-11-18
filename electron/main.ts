@@ -385,6 +385,7 @@ function daemonMain() {
     return info
   })
   ipcMain.handle('app:newId', () => call('app.newId'))
+  ipcMain.handle('opencode:models', () => call('opencode.models'))
   ipcMain.handle('presets:get', () => call('presets.get'))
   ipcMain.handle('presets:save', (_e, list: Preset[]) => call('presets.save', { list }))
   ipcMain.handle('dialog:pickDir', async (_e, current?: string) => {

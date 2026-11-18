@@ -12,13 +12,15 @@ import (
 	"time"
 )
 
-// opencode 2.x tirou o -m/--model do TUI ("Unrecognized flag: -m"): o modelo passou a vir da configuração,
-// e o cliente só lê OPENCODE_CONFIG_CONTENT quando sobe o próprio servidor (--standalone).
-// Presets "opencode -m X ..." são traduzidos na hora do spawn; opencode 1.x segue com o comando original.
+// opencode 2.x tirou o -m/--model do TUI padrão ("Unrecognized flag: -m"): TUI com modelo é "opencode mini -m X".
+// Presets antigos "opencode -m X ..." são reescritos na hora do spawn; opencode 1.x segue com o comando original.
+// O cliente só lê OPENCODE_CONFIG_CONTENT (instruções) quando sobe o próprio servidor (--standalone).
 
 var opencodeModelRe = regexp.MustCompile(`(?s)^(\s*opencode)\s+(?:-m|--model)(?:\s+|=)(\S+)(.*)$`)
 
-// opencodeModelArg: separa "opencode -m X resto" em ("opencode --standalone resto", "X").
+var opencodeMiniRe = regexp.MustCompile(`^(\s*opencode)\s+mini\s+(?:-m|--model)(?:\s+|=)`)
+
+// opencodeModelArg: reescreve "opencode -m X resto" em ("opencode mini -m X resto", "X").
 func opencodeModelArg(cmd string) (rest, model string, ok bool) {
 	m := opencodeModelRe.FindStringSubmatch(cmd)
 	if m == nil {
@@ -28,7 +30,7 @@ func opencodeModelArg(cmd string) (rest, model string, ok bool) {
 	if model == "" {
 		return cmd, "", false
 	}
-	return m[1] + " --standalone" + m[3], model, true
+	return m[1] + " mini -m " + m[2] + m[3], model, true
 }
 
 // opencodeTUILacksModel: a ajuda do TUI lista --standalone e não lista mais --model.
@@ -66,21 +68,33 @@ func opencodeHelp() string {
 	return string(out)
 }
 
-// opencodeSessionArg: cada card tem sua conversa fixa no opencode ("--session" cria se não existir
-// e continua se existir; o id precisa começar com "ses"). Ao reabrir o app, o card volta para a
-// mesma conversa. Comando que já escolhe sessão (--session/-s/--continue/-c) fica como está.
-func opencodeSessionArg(cmd, cardID string) string {
-	for _, f := range strings.Fields(cmd)[1:] {
+// opencodeSessionArg: cada card tem sua conversa no opencode ("--session" cria se não existir e
+// continua se existir). pick() devolve o id da sessão do card (ver opencodeSessionFor); só é chamado
+// quando o comando aceita --session. TUI padrão e "mini" aceitam; outros subcomandos (run...) não
+// ("Unrecognized flag: --session"). Comando que já escolhe sessão (--session/-s/--continue/-c) fica como está.
+func opencodeSessionArg(cmd string, pick func() string) string {
+	fields := strings.Fields(cmd)
+	if len(fields) < 2 {
+		fields = append(fields, "")
+	}
+	mini := fields[1] == "mini"
+	if !strings.HasPrefix(fields[1], "-") && fields[1] != "" && !mini {
+		return cmd
+	}
+	for _, f := range fields[1:] {
 		if f == "-s" || f == "-c" || f == "--continue" || strings.HasPrefix(f, "--session") {
 			return cmd
 		}
 	}
-	id := safeSessionPart(cardID)
+	id := safeSessionPart(pick())
 	if id == "" {
 		return cmd
 	}
 	i := strings.Index(cmd, "opencode") + len("opencode")
-	return cmd[:i] + " --session ses_colmeia_" + id + cmd[i:]
+	if mini {
+		i = strings.Index(cmd[i:], "mini") + i + len("mini")
+	}
+	return cmd[:i] + " --session " + id + cmd[i:]
 }
 
 func safeSessionPart(s string) string {
@@ -103,27 +117,32 @@ func isOpencodeCmd(cmd string) bool {
 //   - instruções do Colmeia (WORKER.md / ORCHESTRATOR.md) entram como "instructions" da configuração,
 //     ou seja, no prompt de sistema. Antes iam por --prompt, que vira a primeira mensagem do chat:
 //     aparecia no card e gastava tokens só por abrir o terminal.
-//   - opencode 2.x: modelo também pela configuração (o TUI não aceita mais -m).
+//   - opencode 2.x: "opencode -m X" vira "opencode mini -m X" (o TUI padrão não aceita mais -m).
 //   - 2.x só lê OPENCODE_CONFIG_CONTENT com servidor próprio: acrescenta --standalone quando existe.
 //
 // Devolve o comando ajustado e o novo OPENCODE_CONFIG_CONTENT.
 func opencodeSetup(cmd, current, rulesFile, help string) (string, string) {
-	model := ""
-	if rest, m, ok := opencodeModelArg(cmd); ok && opencodeTUILacksModel(help) {
-		cmd, model = rest, m
+	if rest, _, ok := opencodeModelArg(cmd); ok && opencodeTUILacksModel(help) {
+		cmd = rest
+	} else if help != "" && !opencodeTUILacksModel(help) {
+		// 1.x: "mini" seria lido como caminho do projeto; volta para "opencode -m X"
+		cmd = opencodeMiniRe.ReplaceAllString(cmd, "$1 -m ")
 	}
 	if strings.Contains(help, "--standalone") && !strings.Contains(cmd, "--standalone") {
 		i := strings.Index(cmd, "opencode") + len("opencode")
-		cmd = cmd[:i] + " --standalone" + cmd[i:]
+		if m := opencodeMiniRe.FindString(cmd); m != "" || strings.HasPrefix(strings.TrimSpace(cmd[i:]), "mini ") {
+			// depois do "mini": "opencode mini --standalone -m X"
+			j := strings.Index(cmd[i:], "mini") + i + len("mini")
+			cmd = cmd[:j] + " --standalone" + cmd[j:]
+		} else {
+			cmd = cmd[:i] + " --standalone" + cmd[i:]
+		}
 	}
 	cfg := map[string]any{}
 	if strings.TrimSpace(current) != "" {
 		if err := json.Unmarshal([]byte(current), &cfg); err != nil {
 			cfg = map[string]any{}
 		}
-	}
-	if model != "" {
-		cfg["model"] = model
 	}
 	if rulesFile != "" {
 		f := filepath.ToSlash(rulesFile) // "instructions" aceita globs: barra invertida seria escape
@@ -144,17 +163,4 @@ func opencodeSetup(cmd, current, rulesFile, help string) (string, string) {
 	}
 	b, _ := json.Marshal(cfg)
 	return cmd, string(b)
-}
-
-// opencodeConfigWithModel: põe "model" no JSON de OPENCODE_CONFIG_CONTENT, mantendo o que o usuário já tinha.
-func opencodeConfigWithModel(current, model string) string {
-	cfg := map[string]any{}
-	if strings.TrimSpace(current) != "" {
-		if err := json.Unmarshal([]byte(current), &cfg); err != nil {
-			cfg = map[string]any{}
-		}
-	}
-	cfg["model"] = model
-	b, _ := json.Marshal(cfg)
-	return string(b)
 }

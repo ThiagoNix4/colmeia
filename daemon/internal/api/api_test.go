@@ -63,10 +63,10 @@ func TestServerPingAndAttach(t *testing.T) {
 	}
 }
 
-// opencode 2.x: "opencode -m X ..." vira "opencode --standalone ..." + modelo no JSON de configuração.
+// opencode 2.x: "opencode -m X ..." vira "opencode mini -m X ...".
 func TestOpencodeModelArg(t *testing.T) {
 	rest, model, ok := opencodeModelArg(`opencode -m opencode/deepseek-free --prompt "x y"`)
-	if !ok || model != "opencode/deepseek-free" || rest != `opencode --standalone --prompt "x y"` {
+	if !ok || model != "opencode/deepseek-free" || rest != `opencode mini -m opencode/deepseek-free --prompt "x y"` {
 		t.Fatalf("got %q %q %v", rest, model, ok)
 	}
 	if _, _, ok := opencodeModelArg(`opencode --prompt x`); ok {
@@ -77,8 +77,5 @@ func TestOpencodeModelArg(t *testing.T) {
 	}
 	if !opencodeTUILacksModel("FLAGS\n --standalone\n --prompt") || opencodeTUILacksModel("FLAGS\n --model, -m\n --prompt") {
 		t.Fatal("detecção da versão errada")
-	}
-	if got := opencodeConfigWithModel(`{"theme":"x"}`, "a/b"); got != `{"model":"a/b","theme":"x"}` {
-		t.Fatalf("config = %s", got)
 	}
 }

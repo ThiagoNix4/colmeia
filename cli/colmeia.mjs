@@ -7,6 +7,14 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
+// Pipe fechado cedo (ex.: `| Select-Object -First 5`): sair em silêncio.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (err) => {
+    if (err && err.code === 'EPIPE') process.exit(0)
+    throw err
+  })
+}
+
 // Instância (ver electron/instance.ts): cada variante do Colmeia tem seu daemon; os cards herdam COLMEIA_INSTANCE.
 const INSTANCE =
   (process.env.COLMEIA_INSTANCE || '')
@@ -46,8 +54,9 @@ const HELP = `colmeia — controla o Colmeia
   colmeia result <id> [--lines N]               só o trecho a partir do último RESUMO: (compacto)
   colmeia wait <id...> [--all|--any] [--idle 5] [--timeout 600]
                                                espera cards ficarem ociosos (padrão: --all)
-  colmeia ask <id> <texto...> [--idle 8] [--lines N] [--raw] [--result]
-                                               send + wait + read numa tacada só (--result: como result)
+  colmeia ask <id> <texto...> [--idle 8] [--lines N] [--raw] [--result] [--clear]
+                                               send + wait + read numa tacada só (--result: como result; --clear: limpa a conversa do card depois)
+  colmeia clear <id>                            zera a conversa do card (claude: /clear, opencode: /new; shell: erro)
   colmeia link <a> <b> [--pipe]                 aresta a→b: a comanda b (card↔nota: ler/escrever). --pipe: encaminha o RESUMO de a para b
   colmeia unlink <a> <b>                        remove a conexão entre dois cards
   colmeia focus <id>                            centraliza o card na tela
@@ -69,7 +78,7 @@ Use "-" como texto para ler do stdin.
 read/ask/result removem ruído de TUI (linhas vazias repetidas, molduras, rodapés); --raw devolve a tela crua.`
 
 // Flags sem valor: não consomem o argumento seguinte.
-const BOOL_FLAGS = new Set(['pipe', 'all', 'any', 'raw', 'result', 'json', 'file', 'enter', 'worker'])
+const BOOL_FLAGS = new Set(['pipe', 'all', 'any', 'raw', 'result', 'clear', 'json', 'file', 'enter', 'worker'])
 
 const KEYS = { 'ctrl-c': '\x03', 'ctrl-d': '\x04', esc: '\x1b', enter: '\r', tab: '\t', up: '\x1b[A', down: '\x1b[B', left: '\x1b[D', right: '\x1b[C' }
 
@@ -465,12 +474,22 @@ async function main() {
       if (w.status !== 'ok') console.error(`[${w.status} após ${w.seconds ?? 0}s, card pode não ter terminado]`)
       if (flags.result) {
         const r = await call('read', { id, lines: flags.lines ? Number(flags.lines) : RESULT_LINES })
-        return printResult(r.text)
+        printResult(r.text)
+      } else {
+        const lines = flags.lines ? Number(flags.lines) : flags.raw ? RAW_LINES.ask : DEFAULT_LINES
+        const r = await call('read', { id, lines })
+        console.log(flags.raw ? r.text : compact(r.text))
       }
-      const lines = flags.lines ? Number(flags.lines) : flags.raw ? RAW_LINES.ask : DEFAULT_LINES
-      const r = await call('read', { id, lines })
-      return console.log(flags.raw ? r.text : compact(r.text))
+      if (flags.clear) {
+        if (w.status === 'ok') await call('clear', { id })
+        else console.error(`[--clear ignorado: status ${w.status}]`)
+      }
+      return
     }
+    case 'clear':
+      if (!pos[0]) throw new Error('uso: colmeia clear <id>')
+      await call('clear', { id: pos[0] })
+      return
     case 'link':
       await call('link', { a: pos[0], b: pos[1], mode: flags.pipe ? 'pipe' : 'control' })
       return

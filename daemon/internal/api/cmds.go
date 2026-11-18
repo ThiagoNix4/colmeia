@@ -274,6 +274,40 @@ func (s *Server) makeLink(from, source, target, mode string) error {
 	return nil
 }
 
+// resetCmd devolve o comando que zera a conversa do agente do preset (claude → /clear, opencode → /new).
+func (s *Server) resetCmd(presetID string) (string, error) {
+	s.mu.Lock()
+	var p *store.Preset
+	for i := range s.presets {
+		if s.presets[i].ID == presetID {
+			cp := s.presets[i]
+			p = &cp
+		}
+	}
+	s.mu.Unlock()
+	if p == nil {
+		if lp, ok := store.LegacyPreset(presetID); ok {
+			p = &lp
+		}
+	}
+	if p == nil {
+		return "", errors.New("clear: card sem preset de agente (shell)")
+	}
+	tool := p.Tool
+	if tool == "" {
+		if f := strings.Fields(p.Command); len(f) > 0 {
+			tool = strings.TrimSuffix(strings.ToLower(filepath.Base(f[0])), ".exe")
+		}
+	}
+	switch tool {
+	case "claude":
+		return "/clear", nil
+	case "opencode":
+		return "/new", nil
+	}
+	return "", fmt.Errorf("clear: ferramenta não suportada (%q)", tool)
+}
+
 func numArg(a Args, k string, def float64) float64 {
 	if f, ok := a[k].(float64); ok {
 		return f
@@ -443,6 +477,9 @@ func (s *Server) handleCLI(from, cmd string, a Args) (any, error) {
 		if model != "" && !modelOK.MatchString(model) {
 			return nil, fmt.Errorf("modelo inválido: %s", model)
 		}
+		if err := s.checkPresetModel(presetID, model); err != nil {
+			return nil, err
+		}
 		id := newCardID()
 		title, _ := a["title"].(string)
 		if title == "" {
@@ -511,6 +548,26 @@ func (s *Server) handleCLI(from, cmd string, a Args) (any, error) {
 			return nil, errors.New("card encerrado")
 		}
 		return Args{"id": id, "sent": true}, nil
+	case "clear":
+		id, err := s.resolveCard(a["id"])
+		if err != nil {
+			return nil, err
+		}
+		if err := s.need(from, id); err != nil {
+			return nil, err
+		}
+		info, ok := t.Get(id)
+		if !ok {
+			return nil, errors.New("card encerrado")
+		}
+		reset, err := s.resetCmd(info.Preset)
+		if err != nil {
+			return nil, err
+		}
+		if !t.Send(id, reset, true) {
+			return nil, errors.New("card encerrado")
+		}
+		return Args{"id": id, "cleared": reset}, nil
 	case "key":
 		id, err := s.resolveCard(a["id"])
 		if err != nil {

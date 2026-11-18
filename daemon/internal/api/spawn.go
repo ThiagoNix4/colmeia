@@ -77,12 +77,12 @@ type spawnIn struct {
 	Rows   int    `json:"rows"`
 	// FreshBefore (ms epoch): o app abriu neste instante; sessão viva mais antiga recomeça do zero.
 	FreshBefore int64 `json:"freshBefore"`
-	// Model: sobrescreve o modelo do preset (claude: --model; opencode: -m → config).
+	// Model: sobrescreve o modelo do preset (claude: --model; opencode: mini -m).
 	Model string `json:"model"`
 }
 
 var (
-	modelOK   = regexp.MustCompile(`^[A-Za-z0-9._:/@\[\]-]+$`)
+	modelOK   = regexp.MustCompile(`^[A-Za-z0-9._:/@#\[\]-]+$`)
 	modelFlag = regexp.MustCompile(`\s(--model|-m)(\s+|=)\S+`)
 )
 
@@ -103,7 +103,14 @@ func withModel(cmd, model string) string {
 		return cmd
 	}
 	t := strings.TrimLeft(cmd, " \t\r\n")
-	rest := modelFlag.ReplaceAllString(strings.TrimPrefix(t, f[0]), "")
+	rest := strings.TrimPrefix(t, f[0])
+	if f[0] == "opencode" { // TUI com modelo: "opencode mini -m X"
+		if r := strings.TrimLeft(rest, " \t"); r == "mini" || strings.HasPrefix(r, "mini ") {
+			rest = strings.TrimPrefix(r, "mini")
+		}
+		flag = "mini -m"
+	}
+	rest = modelFlag.ReplaceAllString(rest, "")
 	return f[0] + " " + flag + " " + model + rest
 }
 
@@ -146,7 +153,7 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 	if preset != nil && preset.Command != "" {
 		cmd := withModel(strings.ReplaceAll(preset.Command, "{docs}", docsArg(s.cfg.DocsDir)), in.Model)
 		cmd = withClaudeSettings(cmd, writeClaudeSettings(s.cfg.CliDir))
-		if c := claudeSessionArg(cmd, in.ID); c != cmd {
+		if c := claudeSessionArg(cmd, in.ID, cwd); c != cmd {
 			cmd, agent = c, true
 		}
 		if isOpencodeCmd(cmd) {
@@ -154,13 +161,13 @@ func (s *Server) buildSpawn(in spawnIn) term.SpawnReq {
 			// TUI de tela cheia: o replay de bytes crus sai quebrado ao reabrir o app. Recria o
 			// processo; com a sessão fixa ele volta na mesma conversa, desenhado do zero.
 			restartOnReopen = true
-			cmd = opencodeSessionArg(cmd, in.ID)
 			// instruções implícitas (prompt de sistema, sem mensagem inicial = sem gastar tokens ao abrir)
 			rules := "WORKER.md"
 			if preset.ID == store.ManagerID {
 				rules = "ORCHESTRATOR.md"
 			}
 			cmd, ocConfig = opencodeSetup(cmd, os.Getenv("OPENCODE_CONFIG_CONTENT"), filepath.Join(s.cfg.DocsDir, rules), opencodeHelp())
+			cmd = opencodeSessionArg(cmd, func() string { return opencodeSessionFor(in.ID, cwd) }) // depois do setup; run não aceita --session
 		}
 		if runtime.GOOS == "windows" {
 			// PowerShell: -NoExit mantém o shell após o comando

@@ -108,6 +108,9 @@ func (s *Server) handleUI(cmd string, a Args) (any, error) {
 		if err := decode(a["req"], &in); err != nil || in.ID == "" {
 			return nil, errors.New("parâmetro obrigatório: req")
 		}
+		if err := s.checkPresetModel(in.Preset, in.Model); err != nil {
+			return nil, err
+		}
 		replay, info, err := t.Ensure(s.buildSpawn(in))
 		if err != nil {
 			return nil, err
@@ -122,6 +125,9 @@ func (s *Server) handleUI(cmd string, a Args) (any, error) {
 	case "pty.restart":
 		// remonta o comando: a sessão do agente pode já existir (--session-id → --resume)
 		if info, ok := t.Get(id); ok && info.Preset != "" {
+			if err := s.checkPresetModel(info.Preset, ""); err != nil {
+				return nil, err
+			}
 			return nil, t.RestartWith(s.buildSpawn(spawnIn{ID: id, Preset: info.Preset, Title: info.Title, Cwd: info.Cwd}))
 		}
 		return nil, t.Restart(id)
@@ -189,6 +195,8 @@ func (s *Server) handleUI(cmd string, a Args) (any, error) {
 	case "app.flush":
 		t.FlushAll()
 		return nil, nil
+	case "opencode.models":
+		return opencodeModels(), nil
 	case "presets.get":
 		s.mu.Lock()
 		p := store.LoadPresets()

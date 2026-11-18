@@ -48,6 +48,24 @@ async function main() {
     input = {}
   }
 
+  // conversa atual do card (muda após /clear, /compact): o daemon retoma por este id ao reabrir
+  try {
+    const card = (process.env.COLMEIA_CARD_ID || '').replace(/[^A-Za-z0-9_-]/g, '')
+    const sid = typeof input.session_id === 'string' ? input.session_id.trim() : ''
+    if (card && /^[0-9a-f-]{36}$/.test(sid)) {
+      const f = path.join(configBase, instance, 'sessions', 'claude-' + card + '.txt')
+      let cur = ''
+      try { cur = fs.readFileSync(f, 'utf8').trim() } catch { /* sem registro */ }
+      if (cur !== sid) {
+        fs.mkdirSync(path.dirname(f), { recursive: true })
+        fs.writeFileSync(f + '.tmp', sid)
+        fs.renameSync(f + '.tmp', f)
+      }
+    }
+  } catch {
+    /* só a linha da statusline */
+  }
+
   const rl = input.rate_limits
   const model = input.model?.display_name ?? input.model?.id ?? 'Claude'
   const parts = [String(model)]

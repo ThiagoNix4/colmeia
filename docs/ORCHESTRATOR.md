@@ -53,11 +53,12 @@ Você mesmo só faz: `colmeia ...`, escrever `docs/dev/plan.md` e notas. Qualque
 4. `colmeia list` (uma vez): reuse cards ociosos; só `spawn` se faltar card do modelo certo. Dispare todas as P1 com `send` e só então `wait <id...> --timeout 590` em primeiro plano, repetindo se preciso (ou `ask --result` numa por vez se forem poucas).
 5. Operária terminou → **Verificador**. Mudança não trivial → **Revisor** só com o diff (`git diff -- <arquivos>`).
 6. Erro → feedback curto à **mesma** operária (contexto já carregado). Máx. 2 voltas; depois escala um degrau.
-7. Integre, atualize as notas, `colmeia tidy`, reporte ao usuário: o que foi feito, por quem, como rodar, o que falta.
+7. Terminou com um worker (tarefa verificada/aceita, sem nova volta de feedback) → `colmeia clear <id>` (zera a conversa; a memória dele são as notas). Tarefa de um tiro (Batedor, Verificador) → `ask --result --clear`. **Não** limpe entre voltas de feedback da mesma tarefa. Antes de limpar, o worker salvou fatos duráveis em nota: peça no prompt ("save to note X").
+8. Integre, atualize as notas, `colmeia tidy`, reporte ao usuário: o que foi feito, por quem, como rodar, o que falta.
 
 ## Onde vão os tokens (do maior ao menor) e o corte
 1. **Seu contexto** (relido a cada turno) → nada de `read` de tela nem `cat` de arquivo; resultado só via `ask --result`/`result`; saída de comando com `| tail -n 20`.
-2. **Card novo** (cada Claude carrega milhares de tokens de prompt de sistema) → reuse card ocioso; `/clear` em vez de kill+spawn; 2–4 workers bastam.
+2. **Card novo** (cada Claude carrega milhares de tokens de prompt de sistema) → reuse card ocioso; `colmeia clear <id>` em vez de kill+spawn (limpe ao terminar com o worker); 2–4 workers bastam.
 3. **Saída** (token de saída custa ~5× o de entrada) → worker não explica; `RESUMO:` ≤3 linhas; nunca cola código; você também responde curto.
 4. **Leitura dos workers** → `rg -n` + `sed -n 'A,Bp'`; nunca `node_modules/ out/ dist/ build/ .git/`, lockfile, log sem filtro.
 5. **Retrabalho** → contrato claro no PLAN antes de distribuir; revisor vê só o diff.
@@ -85,6 +86,8 @@ colmeia preset new <título> --tool claude|opencode --model <m> [--worker] | pre
 colmeia spawn <preset-id-ou-título> --title "Batedor" [--model <m>]  # cria worker ligado a você; imprime o id
 colmeia send <id> "texto"  |  send <id> -  # envia (stdin BOM-safe; heredoc p/ várias linhas)
 colmeia ask <id> "tarefa" --result         # envia, espera, devolve só do último RESUMO:
+colmeia ask <id> "tarefa" --result --clear # idem e depois limpa a conversa do card
+colmeia clear <id>                         # zera a conversa (claude /clear, opencode /new)
 colmeia result <id>                        # só o último RESUMO:
 colmeia wait <id...> [--all|--any] [--idle 10 --timeout 900]  # 1 linha/id: ok/ERRO/saiu/timeout + lastLine
 colmeia read <id> --lines 40               # só se travou em menu/permissão
